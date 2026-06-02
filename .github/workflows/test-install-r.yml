@@ -3,7 +3,7 @@ name: Test install_R.sh
 # Builds R from source end-to-end with install_R.sh inside containers for the
 # RHEL-family distros we care about: AlmaLinux 8 (matching the cluster's alma8),
 # plus AlmaLinux 9 and Rocky 9 to catch el9 differences. The test harness
-# (test/run_test.sh) installs its own build deps and JDK per-distro, so each job
+# (test/install_R/run_test.sh) installs its own build deps and JDK per-distro, so each job
 # just prepares checkout and runs it.
 
 on:
@@ -11,18 +11,18 @@ on:
     branches: [ main ]
     paths:
       - 'install_R/**'
-      - 'test/run_test.sh'
-      - 'test/install_deps.sh'
-      - 'test/setup_test_env.sh'
-      - 'test/test_config.sh'
+      - 'test/install_R/run_test.sh'
+      - 'test/install_R/install_deps.sh'
+      - 'test/install_R/setup_test_env.sh'
+      - 'test/install_R/test_config.sh'
       - '.github/workflows/test-install-r.yml'
   pull_request:
     paths:
       - 'install_R/**'
-      - 'test/run_test.sh'
-      - 'test/install_deps.sh'
-      - 'test/setup_test_env.sh'
-      - 'test/test_config.sh'
+      - 'test/install_R/run_test.sh'
+      - 'test/install_R/install_deps.sh'
+      - 'test/install_R/setup_test_env.sh'
+      - 'test/install_R/test_config.sh'
       - '.github/workflows/test-install-r.yml'
   workflow_dispatch:
     inputs:
@@ -67,7 +67,7 @@ jobs:
         # so test_config.sh falls back to its default VERSION.
         env:
           VERSION: ${{ inputs.r_version }}
-        run: bash test/run_test.sh
+        run: bash test/install_R/run_test.sh
 
       - name: Upload build logs on failure
         if: failure()
@@ -75,6 +75,6 @@ jobs:
         with:
           name: r-build-logs-${{ strategy.job-index }}
           path: |
-            test/test_pkg/r/*/build/*.out
-            test/test_pkg/r/*/build/*.output
+            test/install_R/test_pkg/r/*/build/*.out
+            test/install_R/test_pkg/r/*/build/*.output
           if-no-files-found: ignore

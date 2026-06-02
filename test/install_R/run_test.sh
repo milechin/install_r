@@ -4,14 +4,14 @@
 # resulting R. Designed to run on AlmaLinux, Rocky, or Ubuntu images (the cluster
 # is alma8). A single command on a fresh image does everything:
 #
-#     bash test/run_test.sh
+#     bash test/install_R/run_test.sh
 #
 # Set SKIP_DEPS=1 to skip the system-package install step (e.g. if the toolchain
 # and /usr/java/default are already in place).
 set -e
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$HERE/.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
 # 1. Install build dependencies + JDK for this distro (unless told to skip).
 if [ "${SKIP_DEPS:-0}" = "1" ]; then

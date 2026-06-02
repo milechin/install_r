@@ -7,8 +7,8 @@
 # by the system package manager instead. Source this before running the build,
 # exactly like config.sh:
 #
-#     source test/test_config.sh
-#     bash test/run_test.sh
+#     source test/install_R/test_config.sh
+#     bash test/install_R/run_test.sh
 
 # Root of the test sandbox. Defaults to a "test_pkg" dir next to this script;
 # override by exporting TEST_ROOT before sourcing.

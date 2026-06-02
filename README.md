@@ -157,9 +157,9 @@ The download step prints the R-version, OS, and Suggests criteria it is resolvin
 
 The [`test/`](test/) directory has two independent harnesses:
 
-- [`test/run_test.sh`](test/run_test.sh) — builds R from source with `install_R.sh`
+- [`test/install_R/run_test.sh`](test/install_R/run_test.sh) — builds R from source with `install_R.sh`
   (below).
-- [`test/run_package_test.sh`](test/run_package_test.sh) — exercises
+- [`test/install_packages/run_package_test.sh`](test/install_packages/run_package_test.sh) — exercises
   `install_packages.R`'s three modes (see
   [Testing install_packages.R](#testing-install_packagesr)).
 
@@ -173,15 +173,15 @@ el8/el9 (el8 is closest to the cluster's alma8) — or Ubuntu.
 #### One command
 
 ```bash
-./test/run_test.sh
+./test/install_R/run_test.sh
 ```
 
 This will, in order:
 
 1. Install build dependencies + a JDK for the detected distro (`dnf`/`yum` or `apt`)
-   and create the `/usr/java/default` symlink — see [`test/install_deps.sh`](test/install_deps.sh).
-2. Load [`test/test_config.sh`](test/test_config.sh) (a `config.sh` with no module loads).
-3. Create the sandbox directory layout — [`test/setup_test_env.sh`](test/setup_test_env.sh).
+   and create the `/usr/java/default` symlink — see [`test/install_R/install_deps.sh`](test/install_R/install_deps.sh).
+2. Load [`test/install_R/test_config.sh`](test/install_R/test_config.sh) (a `config.sh` with no module loads).
+3. Create the sandbox directory layout — [`test/install_R/setup_test_env.sh`](test/install_R/setup_test_env.sh).
 4. Run [`install_R/install_R.sh`](install_R/install_R.sh).
 5. Smoke-test the built R (`R --version` and a script run).
 
@@ -191,9 +191,9 @@ These are the images the CI workflow uses (the harness also supports Ubuntu, but
 CI is currently scoped to the RHEL family that matches the cluster):
 
 ```bash
-docker run --rm -v "$PWD:/repo" -w /repo almalinux:8  bash test/run_test.sh
-docker run --rm -v "$PWD:/repo" -w /repo almalinux:9  bash test/run_test.sh
-docker run --rm -v "$PWD:/repo" -w /repo rockylinux:9 bash test/run_test.sh
+docker run --rm -v "$PWD:/repo" -w /repo almalinux:8  bash test/install_R/run_test.sh
+docker run --rm -v "$PWD:/repo" -w /repo almalinux:9  bash test/install_R/run_test.sh
+docker run --rm -v "$PWD:/repo" -w /repo rockylinux:9 bash test/install_R/run_test.sh
 ```
 
 #### Knobs
@@ -201,10 +201,10 @@ docker run --rm -v "$PWD:/repo" -w /repo rockylinux:9 bash test/run_test.sh
 | Variable | Effect |
 |---|---|
 | `SKIP_DEPS=1` | Skip the system-package install step (toolchain + JDK already present) |
-| `TEST_ROOT=/path` | Build the sandbox somewhere other than `test/test_pkg` |
+| `TEST_ROOT=/path` | Build the sandbox somewhere other than `test/install_R/test_pkg` |
 
 ```bash
-SKIP_DEPS=1 ./test/run_test.sh
+SKIP_DEPS=1 ./test/install_R/run_test.sh
 ```
 
 #### Notes
@@ -214,11 +214,11 @@ SKIP_DEPS=1 ./test/run_test.sh
   to keep CI fast; production options live in [`install_R/config.sh`](install_R/config.sh).
 - `install_deps.sh` uses `sudo` only when not already root, so it works both in
   containers (root) and on a dev box.
-- Build artifacts go to `test/test_pkg/` and are ignored by git.
+- Build artifacts go to `test/install_R/test_pkg/` and are ignored by git.
 
 ### Testing install_packages.R
 
-[`test/run_package_test.sh`](test/run_package_test.sh) exercises the package script's
+[`test/install_packages/run_package_test.sh`](test/install_packages/run_package_test.sh) exercises the package script's
 three modes. It does **not** build R — it only needs an `R`/`Rscript` on `PATH`, so
 it is fast. It is meant to run in an image that ships R, e.g.
 [`rocker/r-ver`](https://rocker-project.org/); a fresh such image has only
@@ -226,7 +226,7 @@ base + recommended packages, so the test's dependency packages are genuinely abs
 and really get installed.
 
 ```bash
-docker run --rm -v "$PWD:/repo" -w /repo rocker/r-ver:latest bash test/run_package_test.sh
+docker run --rm -v "$PWD:/repo" -w /repo rocker/r-ver:latest bash test/install_packages/run_package_test.sh
 ```
 
 It needs network access to CRAN for the download/online steps; the offline step then
@@ -238,7 +238,7 @@ the `TARGET_R_VERSION` filter, and that `INCLUDE_SUGGESTS` enlarges the closure.
 | Variable | Effect |
 |---|---|
 | `RSCRIPT=/path/to/Rscript` | Use a specific `Rscript` instead of the one on `PATH` |
-| `TEST_ROOT=/path` | Build the sandbox somewhere other than `test/pkg_test_sandbox` |
+| `TEST_ROOT=/path` | Build the sandbox somewhere other than `test/install_packages/pkg_test_sandbox` |
 
 ---
 
@@ -252,7 +252,7 @@ trigger them:
 [`.github/workflows/test-install-r.yml`](.github/workflows/test-install-r.yml)
 runs the build harness across **AlmaLinux 8, AlmaLinux 9, and
 Rocky 9** (the cluster is alma8; el9 is included to catch differences). Each
-distro runs as a container job and executes `test/run_test.sh` — the same script
+distro runs as a container job and executes `test/install_R/run_test.sh` — the same script
 you run locally.
 
 It triggers on:
@@ -267,7 +267,7 @@ It triggers on:
 ### `test-install-packages.yml` — the package workflow
 
 [`.github/workflows/test-install-packages.yml`](.github/workflows/test-install-packages.yml)
-runs [`test/run_package_test.sh`](test/run_package_test.sh) in a `rocker/r-ver`
+runs [`test/install_packages/run_package_test.sh`](test/install_packages/run_package_test.sh) in a `rocker/r-ver`
 container (R preinstalled, so nothing is built — the job is fast). It triggers on
 changes to `install_packages.R`, `list_packages.R`, the test script, or the workflow
 itself, and on manual dispatch (which takes an optional `image` input to pick the
@@ -278,7 +278,7 @@ itself, and on manual dispatch (which takes an optional `image` input to pick th
 The manual *Run workflow* form has an **`R version to build`** field:
 
 - Enter a version (e.g. `4.5.2`) to build that release on all three distros.
-- Leave it blank to use the default in [`test/test_config.sh`](test/test_config.sh).
+- Leave it blank to use the default in [`test/install_R/test_config.sh`](test/install_R/test_config.sh).
 
 The version must exist on CRAN at
 `https://cran.r-project.org/src/base/R-4/R-<version>.tar.gz`, otherwise the

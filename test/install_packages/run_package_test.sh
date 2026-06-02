@@ -5,7 +5,7 @@
 # (TARGET_R_VERSION filter, INCLUDE_SUGGESTS). Unlike run_test.sh this does NOT build
 # R - it just needs an R/Rscript on PATH (e.g. a rocker/r-ver image), so it is fast.
 #
-#     bash test/run_package_test.sh
+#     bash test/install_packages/run_package_test.sh
 #
 # It needs network access to CRAN for the download/online steps. The offline step
 # installs purely from the local DIST repo produced by the download step.
@@ -17,7 +17,7 @@
 set -e
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$HERE/.." && pwd)"
+REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 SCRIPT="$REPO_ROOT/install_packages.R"
 
 RSCRIPT="${RSCRIPT:-Rscript}"
