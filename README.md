@@ -11,7 +11,8 @@ The R-build workflow lives in [`install_R/`](install_R/) (it is run infrequently
 - [`install_R/install_bioconductor.R`](install_R/install_bioconductor.R) — installs BiocManager + tidyverse (separate step).
 - [`test/`](test/) — run `install_R.sh` end-to-end in a sandbox (see [Running the tests](#running-the-tests)).
 
-> For package migration between R versions, see `install_packages.sh` (not covered here).
+A separate workflow migrates installed packages from an old R version to a new one
+— see [Migrating R packages to a new R version](#migrating-r-packages-to-a-new-r-version).
 
 ---
 
@@ -78,6 +79,45 @@ exact command at the end; it is:
     /share/pkg.8/r/install_bioconductor.R |& tee \
     /share/pkg.8/r/4.5.2/build/install_bioconductor.output
 ```
+
+---
+
+## Migrating R packages to a new R version
+
+When a new R version is built, the packages a user had under the old version need to
+be reinstalled under the new one. This is driven by
+[`install_packages.sh`](install_packages.sh) and two R helper scripts. (These scripts
+are referenced by their **deployed** path `/share/pkg.8/r/...`, so edits here take
+effect only once copied to the cluster.)
+
+```bash
+./install_packages.sh <old_version> <new_version>
+# e.g. ./install_packages.sh 4.4.3 4.5.2
+```
+
+What it does, in order:
+
+1. **Dump the old version's package list** — loads `R/<old_version>` and runs
+   [`list_packages.R`](list_packages.R), which calls `installed.packages()`, sorts by
+   name, and writes the **package names** (one per line, with a `Package` header) to
+   **`installed_r_packages.txt`** in the current directory. This file is the record of
+   what was installed under the old R that needs to come across to the new one.
+2. **Switch toolchain** — `module purge`, then load `R/<new_version>` plus
+   `gcc/12.2.0` and `cmake/3.22.2` (needed to compile packages from source).
+3. **Reinstall under the new version** — runs [`install_packages.R`](install_packages.R),
+   which reads `installed_r_packages.txt`, computes which packages are not yet present
+   in the new R (`setdiff` against `installed.packages()`), and installs the missing
+   ones. Per-package results are logged to `package_installation_log.txt`
+   (`SUCCESS:` / `FAILED:` per package).
+
+Notes:
+
+- `install_packages.sh` uses a **login shell** (`#!/bin/bash -l`) because the
+  `module` command is only defined in login shells.
+- `install_packages.R` deliberately force-reinstalls `Matrix` unconditionally — a
+  workaround (Nov 2025) for a bad `Matrix` build shadowing the CRAN one.
+- Packages compile from source on the new R, so the build toolchain (and any system
+  `-devel` libraries a given package needs) must be available on the machine.
 
 ---
 
