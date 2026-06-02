@@ -257,9 +257,11 @@ you run locally.
 
 It triggers on:
 
-- **push** to `main` and **pull requests** — but only when a build/test file
-  changes (`install_R/**`, `test/**`, or the
-  workflow itself), so unrelated commits don't kick off a ~build.
+- **push** to `main` and **pull requests** — but only when a file this build
+  actually uses changes (`install_R/**`, the `run_test.sh` / `install_deps.sh` /
+  `setup_test_env.sh` / `test_config.sh` harness scripts, or the workflow itself), so
+  unrelated commits — including changes to the package-test script — don't kick off
+  a ~90-minute build.
 - **manual dispatch** (Actions tab → *Test install_R.sh* → *Run workflow*).
 
 ### `test-install-packages.yml` — the package workflow

@@ -11,12 +11,18 @@ on:
     branches: [ main ]
     paths:
       - 'install_R/**'
-      - 'test/**'
+      - 'test/run_test.sh'
+      - 'test/install_deps.sh'
+      - 'test/setup_test_env.sh'
+      - 'test/test_config.sh'
       - '.github/workflows/test-install-r.yml'
   pull_request:
     paths:
       - 'install_R/**'
-      - 'test/**'
+      - 'test/run_test.sh'
+      - 'test/install_deps.sh'
+      - 'test/setup_test_env.sh'
+      - 'test/test_config.sh'
       - '.github/workflows/test-install-r.yml'
   workflow_dispatch:
     inputs:
