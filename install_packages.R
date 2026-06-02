@@ -63,12 +63,20 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
   log_file <- "package_installation_log.txt"
   cat("Installation started at", format(Sys.time()), "\n", file = log_file)
 
+  # keep_outputs saves each build's full output (the R CMD INSTALL log, including
+  # compiler errors and "dependency 'X' not available" messages) to <pkg>.out in this
+  # directory. We keep these only for packages that fail, so the actual reason is
+  # reviewable, without scattering an .out for every one of hundreds of successes.
+  out_dir <- "install_logs"
+  dir.create(out_dir, showWarnings = FALSE)
+
   install_one <- function(pkg) {
     if (is.null(contriburl)) {
-      install.packages(pkg, repos = repos, type = type, dependencies = TRUE)
+      install.packages(pkg, repos = repos, type = type, dependencies = TRUE,
+                       keep_outputs = out_dir)
     } else {
       install.packages(pkg, repos = repos, contriburl = contriburl,
-                       type = type, dependencies = TRUE)
+                       type = type, dependencies = TRUE, keep_outputs = out_dir)
     }
   }
 
@@ -77,20 +85,30 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
   failed <- character(0)
   for (pkg in missing_packages) {
     cat("Installing package:", pkg, "\n")
+    before <- list.files(out_dir, pattern = "\\.out$")
     # A failed source build makes install.packages emit a *warning* ("had non-zero
-    # exit status"), not an error, so tryCatch alone would miss it. Capture any
-    # error/warning text, then decide success by whether the package is actually
-    # present afterwards - the authoritative check.
-    msg <- NULL
+    # exit status"), not an error, so tryCatch alone would miss it - and there can be
+    # several warnings (the informative "dependency not available" plus the generic
+    # one). Capture them all, then decide success by whether the package is actually
+    # present afterwards (the authoritative check); the full build log is in <pkg>.out.
+    msgs <- character(0)
     withCallingHandlers(
-      tryCatch(install_one(pkg), error = function(e) msg <<- conditionMessage(e)),
-      warning = function(w) { msg <<- conditionMessage(w); invokeRestart("muffleWarning") }
+      tryCatch(install_one(pkg), error = function(e) msgs <<- c(msgs, conditionMessage(e))),
+      warning = function(w) { msgs <<- c(msgs, conditionMessage(w)); invokeRestart("muffleWarning") }
     )
+    new_outs <- setdiff(list.files(out_dir, pattern = "\\.out$"), before)
+
     if (is_installed(pkg)) {
       cat("SUCCESS:", pkg, "\n", file = log_file, append = TRUE)
+      if (length(new_outs)) file.remove(file.path(out_dir, new_outs))  # keep only failures
     } else {
-      detail <- if (is.null(msg)) "not installed (see console output above)" else msg
+      detail <- if (length(msgs)) paste(unique(trimws(msgs)), collapse = " | ") else
+                "not installed (see console output above)"
       cat("FAILED:", pkg, "-", detail, "\n", file = log_file, append = TRUE)
+      if (length(new_outs)) {
+        cat("  build output:", paste(file.path(out_dir, new_outs), collapse = ", "),
+            "\n", file = log_file, append = TRUE)
+      }
       cat("  FAILED:", pkg, "-", detail, "\n")
       failed <- c(failed, pkg)
     }
@@ -100,6 +118,9 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
   if (length(failed) > 0) {
     cat(length(failed), "of", length(missing_packages), "failed:",
         paste(failed, collapse = ", "), "\n", file = log_file, append = TRUE)
+    cat("Per-failure build logs are in", out_dir, "/.\n", file = log_file, append = TRUE)
+  } else if (length(list.files(out_dir)) == 0) {
+    unlink(out_dir, recursive = TRUE)   # nothing failed - no build logs to keep
   }
   cat("Installation complete. See", log_file, "for details.\n")
   invisible(failed)
@@ -273,8 +294,8 @@ if (mode != "download") {
     # be fed straight back in, and print a ready-to-run retry command for this mode.
     failed_file <- "failed_packages.txt"
     writeLines(c("Package", failed), failed_file)
-    cat("\n", length(failed), " package(s) FAILED - errors are in package_installation_log.txt;",
-        " names written to ", failed_file, ".\n", sep = "")
+    cat("\n", length(failed), " package(s) FAILED - summary in package_installation_log.txt,",
+        " full build output per failure in install_logs/; names written to ", failed_file, ".\n", sep = "")
     prefix <- if (mode == "offline") paste0("DIST_DIR=", shQuote(dist_dir), " ") else ""
     cat("To retry only the failed packages, rerun:\n")
     cat("  ", prefix, "Rscript install_packages.R ", mode, " ", failed_file, "\n", sep = "")

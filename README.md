@@ -116,7 +116,13 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    actually present afterwards — a source build that fails only emits a warning, so a
    naive check would miss it.
 
-   If any packages fail, their names are written to `failed_packages.txt` (same
+   For each **failed** package the full build output (the `R CMD INSTALL` log, with
+   the compiler error or the missing-dependency message — so you can see *why* it
+   failed, including when the real culprit is a dependency) is saved to
+   `install_logs/<pkg>.out`, and the summary log line points at it. Logs for
+   successful builds are not kept.
+
+   If any packages fail, their names are also written to `failed_packages.txt` (same
    format as the input list) and a ready-to-run retry command is printed. You can
    rerun that to attempt only the failures — and since the script skips
    already-installed packages, simply re-running with the original list works too.
