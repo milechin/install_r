@@ -155,12 +155,22 @@ The download step prints the R-version, OS, and Suggests criteria it is resolvin
 
 ## Running the tests
 
-The [`test/`](test/) harness runs `install_R.sh` end-to-end in a throwaway sandbox,
+The [`test/`](test/) directory has two independent harnesses:
+
+- [`test/run_test.sh`](test/run_test.sh) — builds R from source with `install_R.sh`
+  (below).
+- [`test/run_package_test.sh`](test/run_package_test.sh) — exercises
+  `install_packages.R`'s three modes (see
+  [Testing install_packages.R](#testing-install_packagesr)).
+
+### Testing install_R.sh
+
+`run_test.sh` runs `install_R.sh` end-to-end in a throwaway sandbox,
 with **no module system** — the toolchain is installed from the OS package manager.
 It is meant to run on a fresh container image: the RHEL family — AlmaLinux or Rocky,
 el8/el9 (el8 is closest to the cluster's alma8) — or Ubuntu.
 
-### One command
+#### One command
 
 ```bash
 ./test/run_test.sh
@@ -175,7 +185,7 @@ This will, in order:
 4. Run [`install_R/install_R.sh`](install_R/install_R.sh).
 5. Smoke-test the built R (`R --version` and a script run).
 
-### In containers (AlmaLinux / Rocky)
+#### In containers (AlmaLinux / Rocky)
 
 These are the images the CI workflow uses (the harness also supports Ubuntu, but
 CI is currently scoped to the RHEL family that matches the cluster):
@@ -186,7 +196,7 @@ docker run --rm -v "$PWD:/repo" -w /repo almalinux:9  bash test/run_test.sh
 docker run --rm -v "$PWD:/repo" -w /repo rockylinux:9 bash test/run_test.sh
 ```
 
-### Knobs
+#### Knobs
 
 | Variable | Effect |
 |---|---|
@@ -197,7 +207,7 @@ docker run --rm -v "$PWD:/repo" -w /repo rockylinux:9 bash test/run_test.sh
 SKIP_DEPS=1 ./test/run_test.sh
 ```
 
-### Notes
+#### Notes
 
 - The test deliberately uses a **lighter configure** (`--with-x=no
   --without-recommended-packages`) and builds in parallel (`MAKEFLAGS=-j$(nproc)`)
@@ -206,12 +216,41 @@ SKIP_DEPS=1 ./test/run_test.sh
   containers (root) and on a dev box.
 - Build artifacts go to `test/test_pkg/` and are ignored by git.
 
+### Testing install_packages.R
+
+[`test/run_package_test.sh`](test/run_package_test.sh) exercises the package script's
+three modes. It does **not** build R — it only needs an `R`/`Rscript` on `PATH`, so
+it is fast. It is meant to run in an image that ships R, e.g.
+[`rocker/r-ver`](https://rocker-project.org/); a fresh such image has only
+base + recommended packages, so the test's dependency packages are genuinely absent
+and really get installed.
+
+```bash
+docker run --rm -v "$PWD:/repo" -w /repo rocker/r-ver:latest bash test/run_package_test.sh
+```
+
+It needs network access to CRAN for the download/online steps; the offline step then
+installs purely from the local `DIST` repo the download step produced. The checks, in
+order: a `download` → `offline` air-gap round-trip (verifying a dependency is pulled
+from `DIST`, not CRAN), a normal `online` install, the bare-argument back-compat path,
+the `TARGET_R_VERSION` filter, and that `INCLUDE_SUGGESTS` enlarges the closure.
+
+| Variable | Effect |
+|---|---|
+| `RSCRIPT=/path/to/Rscript` | Use a specific `Rscript` instead of the one on `PATH` |
+| `TEST_ROOT=/path` | Build the sandbox somewhere other than `test/pkg_test_sandbox` |
+
 ---
 
 ## Continuous integration
 
+Two GitHub Actions workflows, each scoped by `paths:` so unrelated commits don't
+trigger them:
+
+### `test-install-r.yml` — the R build
+
 [`.github/workflows/test-install-r.yml`](.github/workflows/test-install-r.yml)
-runs the test harness on GitHub Actions across **AlmaLinux 8, AlmaLinux 9, and
+runs the build harness across **AlmaLinux 8, AlmaLinux 9, and
 Rocky 9** (the cluster is alma8; el9 is included to catch differences). Each
 distro runs as a container job and executes `test/run_test.sh` — the same script
 you run locally.
@@ -223,7 +262,16 @@ It triggers on:
   workflow itself), so unrelated commits don't kick off a ~build.
 - **manual dispatch** (Actions tab → *Test install_R.sh* → *Run workflow*).
 
-### Choosing the R version for a manual run
+### `test-install-packages.yml` — the package workflow
+
+[`.github/workflows/test-install-packages.yml`](.github/workflows/test-install-packages.yml)
+runs [`test/run_package_test.sh`](test/run_package_test.sh) in a `rocker/r-ver`
+container (R preinstalled, so nothing is built — the job is fast). It triggers on
+changes to `install_packages.R`, `list_packages.R`, the test script, or the workflow
+itself, and on manual dispatch (which takes an optional `image` input to pick the
+`rocker/r-ver` tag / R version).
+
+### Choosing the R version for a manual run of `test-install-r.yml`
 
 The manual *Run workflow* form has an **`R version to build`** field:
 
