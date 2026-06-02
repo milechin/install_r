@@ -111,8 +111,15 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    [`install_packages.R`](install_packages.R) reads the package list, computes which
    packages are not yet present in the new R (`setdiff` against
    `installed.packages()`), and installs the missing ones from CRAN. Per-package
-   results are logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` per
-   package).
+   results are logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` with
+   the error text per package). Success is determined by checking the package is
+   actually present afterwards — a source build that fails only emits a warning, so a
+   naive check would miss it.
+
+   If any packages fail, their names are written to `failed_packages.txt` (same
+   format as the input list) and a ready-to-run retry command is printed. You can
+   rerun that to attempt only the failures — and since the script skips
+   already-installed packages, simply re-running with the original list works too.
 
 Note: packages compile from source on the new R, so the build toolchain (and any
 system `-devel` libraries a given package needs) must be available on the machine.

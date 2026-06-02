@@ -111,5 +111,22 @@ if echo "$out" | grep -q "without setting a mirror"; then fail "hit the 'no CRAN
 assert_installed "$VLIB" rmsfact
 pass "online fell back to a CRAN mirror under the @CRAN@ placeholder"
 
+# ---------------------------------------------------------------------------
+echo "=== 8. failures are logged and a retry list + command are produced ==="
+# Offline-install a package that is not in DIST: it must be reported FAILED (not a
+# false SUCCESS), recorded in the log, and written to failed_packages.txt with a
+# printed retry command.
+FLIB="$SANDBOX/lib_fail"
+mkdir -p "$FLIB"
+BOGUS="this_package_does_not_exist_zzz"
+printf 'Package\n%s\n' "$BOGUS" > faillist.txt
+out=$(R_LIBS="$FLIB" DIST_DIR="$DIST" "$RSCRIPT" "$SCRIPT" offline faillist.txt 2>&1)
+echo "$out" | grep -q "FAILED: $BOGUS" || fail "failure not reported on console"
+echo "$out" | grep -q "To retry only the failed packages" || fail "retry command not printed"
+[ -f "$SANDBOX/failed_packages.txt" ] || fail "failed_packages.txt not written"
+grep -q "$BOGUS" "$SANDBOX/failed_packages.txt" || fail "failed package missing from failed_packages.txt"
+grep -q "FAILED: $BOGUS" "$SANDBOX/package_installation_log.txt" || fail "failure not recorded in log file"
+pass "failure logged + failed_packages.txt + retry command produced"
+
 echo
 echo "=== ALL PACKAGE TESTS PASSED ==="

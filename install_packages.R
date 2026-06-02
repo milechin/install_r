@@ -44,17 +44,19 @@ read_package_list <- function(file_path) {
   packages
 }
 
-# Install a set of packages one at a time, logging a per-package SUCCESS/FAILED line.
-# Shared by online (CRAN) and offline modes. For offline, pass contriburl pointing at
-# the flat DIST repo (file://...) so install.packages reads DIST/PACKAGES directly
-# rather than expecting the src/contrib subtree a normal repos= would.
+# Install a set of packages one at a time, logging a per-package SUCCESS/FAILED line
+# (with the error/warning text on failures) to package_installation_log.txt, and
+# returning the names that failed. Shared by online (CRAN) and offline modes. For
+# offline, pass contriburl pointing at the flat DIST repo (file://...) so
+# install.packages reads DIST/PACKAGES directly rather than expecting the src/contrib
+# subtree a normal repos= would.
 install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType")) {
   installed <- rownames(installed.packages())
   missing_packages <- setdiff(packages, installed)
 
   if (length(missing_packages) == 0) {
     cat("All packages from the list are already installed.\n")
-    return(invisible())
+    return(invisible(character(0)))
   }
 
   cat("Installing", length(missing_packages), "missing packages...\n")
@@ -70,19 +72,37 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
     }
   }
 
+  is_installed <- function(pkg) length(find.package(pkg, quiet = TRUE)) > 0
+
+  failed <- character(0)
   for (pkg in missing_packages) {
     cat("Installing package:", pkg, "\n")
-    tryCatch({
-      install_one(pkg)
+    # A failed source build makes install.packages emit a *warning* ("had non-zero
+    # exit status"), not an error, so tryCatch alone would miss it. Capture any
+    # error/warning text, then decide success by whether the package is actually
+    # present afterwards - the authoritative check.
+    msg <- NULL
+    withCallingHandlers(
+      tryCatch(install_one(pkg), error = function(e) msg <<- conditionMessage(e)),
+      warning = function(w) { msg <<- conditionMessage(w); invokeRestart("muffleWarning") }
+    )
+    if (is_installed(pkg)) {
       cat("SUCCESS:", pkg, "\n", file = log_file, append = TRUE)
-    }, error = function(e) {
-      cat("FAILED:", pkg, "- Error:", conditionMessage(e), "\n", file = log_file, append = TRUE)
-      cat("  Error installing", pkg, ":", conditionMessage(e), "\n")
-    })
+    } else {
+      detail <- if (is.null(msg)) "not installed (see console output above)" else msg
+      cat("FAILED:", pkg, "-", detail, "\n", file = log_file, append = TRUE)
+      cat("  FAILED:", pkg, "-", detail, "\n")
+      failed <- c(failed, pkg)
+    }
   }
 
   cat("Installation completed at", format(Sys.time()), "\n", file = log_file, append = TRUE)
+  if (length(failed) > 0) {
+    cat(length(failed), "of", length(missing_packages), "failed:",
+        paste(failed, collapse = ", "), "\n", file = log_file, append = TRUE)
+  }
   cat("Installation complete. See", log_file, "for details.\n")
+  invisible(failed)
 }
 
 # Map a TARGET_OS value to R's OS_type field ("unix" or "windows").
@@ -238,8 +258,8 @@ dist_dir <- Sys.getenv("DIST_DIR", "DIST")
 packages <- read_package_list(pkg_list_file)
 
 cat("Mode:", mode, "\n")
-switch(mode,
-       download = download_packages(packages, dist_dir),
+failed <- switch(mode,
+       download = { download_packages(packages, dist_dir); character(0) },
        offline  = install_offline(packages, dist_dir),
        online   = install_online(packages))
 
@@ -247,4 +267,18 @@ switch(mode,
 if (mode != "download") {
   installed_after <- rownames(installed.packages())
   cat("Total packages installed:", length(installed_after), "\n")
+
+  if (length(failed) > 0) {
+    # Write the failures as a package list (same format the script reads) so they can
+    # be fed straight back in, and print a ready-to-run retry command for this mode.
+    failed_file <- "failed_packages.txt"
+    writeLines(c("Package", failed), failed_file)
+    cat("\n", length(failed), " package(s) FAILED - errors are in package_installation_log.txt;",
+        " names written to ", failed_file, ".\n", sep = "")
+    prefix <- if (mode == "offline") paste0("DIST_DIR=", shQuote(dist_dir), " ") else ""
+    cat("To retry only the failed packages, rerun:\n")
+    cat("  ", prefix, "Rscript install_packages.R ", mode, " ", failed_file, "\n", sep = "")
+    cat("(To retry one package, put just its name under a \"Package\" header in a",
+        " file and pass that file instead.)\n", sep = "")
+  }
 }

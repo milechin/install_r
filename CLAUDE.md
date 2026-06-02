@@ -92,6 +92,12 @@ to the SCC, was removed in favor of these two portable steps.)
   closure is hard deps only (`Depends`/`Imports`/`LinkingTo`); `INCLUDE_SUGGESTS=1`
   also pulls the listed packages' `Suggests` (top-level, plus their hard deps) to
   mirror `install.packages(dependencies = TRUE)` — a much larger closure.
+- [install_packages.R](install_packages.R) decides per-package SUCCESS/FAILED by
+  checking the package is actually present afterwards (`find.package`), **not** by
+  `tryCatch` alone — a failed source build emits a *warning* (not an error), so the
+  naive catch would log a false SUCCESS. Don't "simplify" that back. Failures are
+  collected into `failed_packages.txt` (a re-feedable list) with a printed retry
+  command.
 - Hard-coded versions (`gcc/12.2.0`, `flexiblas/3.3.1`, `cmake/3.22.2`, the
   `pkg.7`→`pkg.8`/alma8 paths, `R-4/` URL path) are environment facts, not defaults to
   generalize. Changing them is a real migration decision.
