@@ -52,11 +52,14 @@ Environment-agnostic (no module/SCC coupling; you provide each R yourself, e.g.
 `module load R/<ver>` on the SCC or any R elsewhere):
 - Under the **old** R: `Rscript list_packages.R` — [list_packages.R](list_packages.R)
   dumps the installed package names to `installed_r_packages.txt`.
-- Under the **new** R: `Rscript install_packages.R [list.txt]` —
+- Under the **new** R: `Rscript install_packages.R [mode] [list.txt]` —
   [install_packages.R](install_packages.R) reads the list (default
   `installed_r_packages.txt`, or an optional path arg), `setdiff`s against what's
   already installed, and installs the missing packages (logs per-package
-  SUCCESS/FAILED to `package_installation_log.txt`).
+  SUCCESS/FAILED to `package_installation_log.txt`). `mode` is `online` (default,
+  install from CRAN), `download` (fetch source tarballs + hard deps into a `DIST`
+  folder for transfer to an air-gapped machine), or `offline` (install from a copied
+  `DIST` as a `file://` repo). See the air-gap section in the README.
 
 (The old `install_packages.sh` wrapper, which hard-coded `module load`s and was tied
 to the SCC, was removed in favor of these two portable steps.)
@@ -78,9 +81,14 @@ to the SCC, was removed in favor of these two portable steps.)
   flexiblas module is loaded** (`install_R.sh` checks `module list`); the option string
   itself lives in `config.sh` as `R_FLEXIBLAS_CONFIGURE_OPTS` (single-quoted so its
   `pkg-config` substitution is deferred until build time, then `eval`'d).
-- [install_packages.R](install_packages.R) force-reinstalls `Matrix` unconditionally —
-  a deliberate workaround (Nov 2025) for a bad Matrix build shadowing the CRAN one.
-  Don't "clean up" that line.
+- [install_packages.R](install_packages.R)'s `download` mode resolves the dependency
+  closure against the **target** R version and OS (`TARGET_R_VERSION` / `TARGET_OS`
+  env vars, defaulting to the running R and `linux`) via custom `available.packages()`
+  filters — not just the machine running the download — so an online box on a newer R
+  doesn't fetch packages the air-gapped target can't install. The air-gap approach
+  uses **source** tarballs (compiler/glibc-independent); they compile on the target,
+  so the target needs a compatible toolchain. CRAN metadata carries no compiler/glibc
+  constraint, so there is nothing to filter on that axis.
 - Hard-coded versions (`gcc/12.2.0`, `flexiblas/3.3.1`, `cmake/3.22.2`, the
   `pkg.7`→`pkg.8`/alma8 paths, `R-4/` URL path) are environment facts, not defaults to
   generalize. Changing them is a real migration decision.

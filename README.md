@@ -110,15 +110,45 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
 
    [`install_packages.R`](install_packages.R) reads the package list, computes which
    packages are not yet present in the new R (`setdiff` against
-   `installed.packages()`), and installs the missing ones. Per-package results are
-   logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` per package).
+   `installed.packages()`), and installs the missing ones from CRAN. Per-package
+   results are logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` per
+   package).
 
-Notes:
+Note: packages compile from source on the new R, so the build toolchain (and any
+system `-devel` libraries a given package needs) must be available on the machine.
 
-- `install_packages.R` deliberately force-reinstalls `Matrix` unconditionally — a
-  workaround (Nov 2025) for a bad `Matrix` build shadowing the CRAN one.
-- Packages compile from source on the new R, so the build toolchain (and any system
-  `-devel` libraries a given package needs) must be available on the machine.
+### Air-gapped target systems
+
+[`install_packages.R`](install_packages.R) takes a **mode** as its first argument.
+The plain form above is the default `online` mode. For a target with no internet
+access, do the install in two stages — **download** on an internet-connected machine,
+then **offline** install on the air-gapped target:
+
+```bash
+# 1. On an internet-connected machine: fetch every package in the list PLUS its
+#    hard dependencies (Depends/Imports/LinkingTo, recursive) as source tarballs
+#    into a DIST folder, and write a PACKAGES index so DIST is a local repository.
+Rscript install_packages.R download installed_r_packages.txt
+
+# 2. Copy the DIST folder to the air-gapped target.
+
+# 3. On the target: install from DIST (a file:// repo) — no network access.
+Rscript install_packages.R offline installed_r_packages.txt
+```
+
+The target must have the same build toolchain R was built with (the packages still
+compile from source there) plus any required system `-devel` libraries.
+
+Knobs (environment variables):
+
+| Variable | Mode | Effect |
+|---|---|---|
+| `DIST_DIR` | download, offline | DIST folder location (default `./DIST`) |
+| `CRAN_REPO` | download | CRAN mirror to download from (default `https://cran.r-project.org`) |
+| `TARGET_R_VERSION` | download | R version the downloads must be compatible with (default: the R running the download). Set this when the online machine's R differs from the target's, so only target-compatible package versions are fetched. |
+| `TARGET_OS` | download | OS the downloads must apply to: `linux` (default), `macos`, or `windows` |
+
+The download step prints the R-version and OS criteria it is resolving against.
 
 ---
 
