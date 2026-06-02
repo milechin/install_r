@@ -85,35 +85,36 @@ exact command at the end; it is:
 ## Migrating R packages to a new R version
 
 When a new R version is built, the packages a user had under the old version need to
-be reinstalled under the new one. This is driven by
-[`install_packages.sh`](install_packages.sh) and two R helper scripts. (These scripts
-are referenced by their **deployed** path `/share/pkg.8/r/...`, so edits here take
-effect only once copied to the cluster.)
+be reinstalled under the new one. This is two plain `Rscript` steps — one under the
+**old** R, one under the **new** R. The scripts are environment-agnostic; you decide
+how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
 
-```bash
-./install_packages.sh <old_version> <new_version>
-# e.g. ./install_packages.sh 4.4.3 4.5.2
-```
+1. **Dump the old version's package list** — under the **old** R:
 
-What it does, in order:
+   ```bash
+   Rscript list_packages.R
+   ```
 
-1. **Dump the old version's package list** — loads `R/<old_version>` and runs
-   [`list_packages.R`](list_packages.R), which calls `installed.packages()`, sorts by
-   name, and writes the **package names** (one per line, with a `Package` header) to
+   [`list_packages.R`](list_packages.R) calls `installed.packages()`, sorts by name,
+   and writes the **package names** (one per line, with a `Package` header) to
    **`installed_r_packages.txt`** in the current directory. This file is the record of
    what was installed under the old R that needs to come across to the new one.
-2. **Switch toolchain** — `module purge`, then load `R/<new_version>` plus
-   `gcc/12.2.0` and `cmake/3.22.2` (needed to compile packages from source).
-3. **Reinstall under the new version** — runs [`install_packages.R`](install_packages.R),
-   which reads `installed_r_packages.txt`, computes which packages are not yet present
-   in the new R (`setdiff` against `installed.packages()`), and installs the missing
-   ones. Per-package results are logged to `package_installation_log.txt`
-   (`SUCCESS:` / `FAILED:` per package).
+
+2. **Reinstall under the new version** — under the **new** R (with a compiler
+   available, since packages build from source):
+
+   ```bash
+   Rscript install_packages.R                    # reads ./installed_r_packages.txt
+   Rscript install_packages.R path/to/list.txt   # or point at a specific list file
+   ```
+
+   [`install_packages.R`](install_packages.R) reads the package list, computes which
+   packages are not yet present in the new R (`setdiff` against
+   `installed.packages()`), and installs the missing ones. Per-package results are
+   logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` per package).
 
 Notes:
 
-- `install_packages.sh` uses a **login shell** (`#!/bin/bash -l`) because the
-  `module` command is only defined in login shells.
 - `install_packages.R` deliberately force-reinstalls `Matrix` unconditionally — a
   workaround (Nov 2025) for a bad `Matrix` build shadowing the CRAN one.
 - Packages compile from source on the new R, so the build toolchain (and any system

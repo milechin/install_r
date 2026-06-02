@@ -47,23 +47,29 @@ is **a separate post-install step** (run it by hand after confirming R works); t
 build script prints the exact command at the end.
 Toolchain is pinned in `install_R/config.sh`: `gcc/12.2.0`, `texlive/2022`, `flexiblas/3.3.1`.
 
-**2. Migrate packages from an old R version to a new one — [install_packages.sh](install_packages.sh)**
-`./install_packages.sh <old_version> <new_version>`. Loads `R/<old>`, dumps the
-installed package names to `installed_r_packages.txt` via
-[list_packages.R](list_packages.R), then `module purge`s, loads `R/<new>` +
-`gcc/12.2.0` + `cmake/3.22.2`, and reinstalls that list with
-[install_packages.R](install_packages.R) (logs per-package SUCCESS/FAILED to
-`package_installation_log.txt`).
+**2. Migrate packages from an old R version to a new one — two `Rscript` steps**
+Environment-agnostic (no module/SCC coupling; you provide each R yourself, e.g.
+`module load R/<ver>` on the SCC or any R elsewhere):
+- Under the **old** R: `Rscript list_packages.R` — [list_packages.R](list_packages.R)
+  dumps the installed package names to `installed_r_packages.txt`.
+- Under the **new** R: `Rscript install_packages.R [list.txt]` —
+  [install_packages.R](install_packages.R) reads the list (default
+  `installed_r_packages.txt`, or an optional path arg), `setdiff`s against what's
+  already installed, and installs the missing packages (logs per-package
+  SUCCESS/FAILED to `package_installation_log.txt`).
+
+(The old `install_packages.sh` wrapper, which hard-coded `module load`s and was tied
+to the SCC, was removed in favor of these two portable steps.)
 
 ## Things that aren't obvious from reading one file
 
-- The two `install_packages.*` scripts reference their `.R` counterparts by the
-  **deployed** absolute path `/share/pkg.8/r/...`, not the repo copy. Editing a script
-  here has no effect until it is copied to that location on the cluster.
-- `install_R.sh` is run via `bash`/`sh` but `install_packages.sh` needs a **login
-  shell** (`#!/bin/bash -l`) because `module` is only defined in login shells.
-  `install_R.sh` gets `module` because the modules are loaded in `config.sh`, which
-  you `source` in an (already module-enabled) interactive/login shell beforehand.
+- The migration `.R` scripts (`list_packages.R`, `install_packages.R`) are
+  environment-agnostic — they take no module/SCC dependency and read/write
+  `installed_r_packages.txt` by relative path. You provide the right R for each step
+  (e.g. `module load R/<ver>` on the SCC) rather than a committed wrapper doing it.
+- `install_R.sh` gets `module` because the build modules are loaded in `config.sh`,
+  which you `source` in an (already module-enabled) interactive/login shell
+  beforehand; the modules' environment then propagates to the `install_R.sh` child.
 - `install_R.sh` locates the GCC runtime libs dynamically via
   `gcc -print-file-name` + `objdump` SONAME (matching the loaded gcc), rather than
   hard-coding versioned paths — so it tracks whatever `gcc` module `config.sh` loads.

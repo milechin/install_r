@@ -55,8 +55,11 @@ install_packages_from_file <- function(file_path = "installed_r_packages.txt") {
   }
 }
 
-# Execute the function
-install_packages_from_file("installed_r_packages.txt")
+# Execute the function. An optional first command-line argument overrides the
+# default package-list file:  Rscript install_packages.R [path/to/list.txt]
+args <- commandArgs(trailingOnly = TRUE)
+pkg_list_file <- if (length(args) >= 1) args[1] else "installed_r_packages.txt"
+install_packages_from_file(pkg_list_file)
 
 # Verify installation
 installed_after <- rownames(installed.packages())
