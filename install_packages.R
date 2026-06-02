@@ -207,8 +207,18 @@ install_offline <- function(packages, dist_dir) {
 
 # online: install from CRAN (the original behavior).
 install_online <- function(packages) {
-  cat("Installing from CRAN.\n")
-  install_from_repo(packages, repos = getOption("repos"))
+  # In a non-interactive Rscript getOption("repos") is the unresolved "@CRAN@"
+  # placeholder, which makes install.packages fail with "trying to use CRAN without
+  # setting a mirror". Honor a real mirror if one is already configured (e.g. via
+  # ~/.Rprofile), otherwise fall back to CRAN_REPO (default https://cran.r-project.org),
+  # the same source download mode uses.
+  repos <- getOption("repos")
+  cran  <- if (!is.null(repos)) repos[["CRAN"]] else NULL
+  if (is.null(cran) || is.na(cran) || !nzchar(cran) || cran == "@CRAN@") {
+    repos <- c(CRAN = Sys.getenv("CRAN_REPO", "https://cran.r-project.org"))
+  }
+  cat("Installing from CRAN:", repos[["CRAN"]], "\n")
+  install_from_repo(packages, repos = repos)
 }
 
 # --- dispatch --------------------------------------------------------------
