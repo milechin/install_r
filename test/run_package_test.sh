@@ -97,5 +97,19 @@ echo "  hard-deps closure: $n_hard tarballs;  with Suggests: $n_sug tarballs"
 [ "$n_sug" -gt "$n_hard" ] || fail "INCLUDE_SUGGESTS did not enlarge the closure ($n_sug !> $n_hard)"
 pass "INCLUDE_SUGGESTS enlarged the closure ($n_hard -> $n_sug)"
 
+# ---------------------------------------------------------------------------
+echo "=== 7. online mode falls back to a real mirror when none is configured ==="
+# --vanilla skips the site/user profiles, so getOption('repos')['CRAN'] is the
+# unresolved '@CRAN@' placeholder - the situation that used to fail with
+# "trying to use CRAN without setting a mirror".
+VLIB="$SANDBOX/lib_vanilla"
+mkdir -p "$VLIB"
+printf 'Package\nrmsfact\n' > vanilla.txt
+out=$(R_LIBS="$VLIB" "$RSCRIPT" --vanilla "$SCRIPT" online vanilla.txt 2>&1)
+echo "$out" | grep -qE "Installing from CRAN: https?://" || fail "online did not fall back to a real CRAN mirror"
+if echo "$out" | grep -q "without setting a mirror"; then fail "hit the 'no CRAN mirror' error"; fi
+assert_installed "$VLIB" rmsfact
+pass "online fell back to a CRAN mirror under the @CRAN@ placeholder"
+
 echo
 echo "=== ALL PACKAGE TESTS PASSED ==="
