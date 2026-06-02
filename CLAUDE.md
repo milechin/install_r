@@ -9,8 +9,8 @@ on a shared HPC cluster (Boston University SCC). There is no build system, test 
 or application — these are operational scripts run by hand on the cluster, in sequence,
 by an admin with write access to `/share/pkg.8`. They depend on the cluster's
 environment-module system (`module load ...`) and a fixed directory layout under
-`/share/pkg.8/r/$VERSION/` (`DIST`, `src`, `build`, `install`), which the `download`
-phase of `install_R.sh` now creates (the `install` phase requires it to exist).
+`/share/pkg.8/r/$VERSION/` (`DIST`, `src`, `build`, `install`). The `download` phase
+of `install_R.sh` creates just `DIST/`; the `install` phase creates `src/build/install`.
 
 ## The two workflows
 
@@ -30,18 +30,21 @@ only for the build.
 
 `install_R.sh` is **phase-aware** (subcommand `download` | `install` | `all`,
 default `all`):
-- `download` — `ensure_dirs` creates the `DIST/src/build/install` skeleton, then
-  `wget -O` fetches the CRAN tarball into `DIST/`. Network only; no toolchain.
-- `install` — `require_dirs` + `require_artifact` (the layout and tarball must
-  exist; the tarball is `gzip -t`'d), then extract into `src/R-$VERSION`, configure,
-  build, `make install` (`make check` non-fatal), copy GCC runtime libs
-  (`libgfortran`/`libstdc++`/`libgcc_s`) into the R `lib` so R starts without the gcc
-  module, and `R CMD javareconf` against `/usr/java/default`. Toolchain only; no
-  network.
+- `download` — creates **only the `DIST/` folder** (`ensure_dirs "$MODULE_DIR/DIST"`),
+  then `wget -O` fetches the CRAN tarball into it. Network only; no toolchain. `DIST/`
+  (the tarball) is the transfer unit.
+- `install` — `require_artifact` on the `DIST/` tarball (must exist; `gzip -t`'d),
+  then `ensure_dirs` creates `src/build/install` from this machine's config, extract
+  into `src/R-$VERSION`, configure, build, `make install` (`make check` non-fatal),
+  copy GCC runtime libs (`libgfortran`/`libstdc++`/`libgcc_s`) into the R `lib` so R
+  starts without the gcc module, and `R CMD javareconf` against `/usr/java/default`.
+  Toolchain only; no network.
 - `all` — download then install, the original one-shot behavior.
 
 This enables a **download → transfer → offline-install** workflow: download on an
-online host, `tar` the version dir to an offline/build host, then `install` there.
+online host (only needs `DIST/`), copy the `DIST/` tarball to the offline/build host,
+then `install` there (the build machine creates `src/build/install` from its own
+`config.sh`).
 `install_R.sh` runs `set -e`/`pipefail` and is location-independent — all paths
 derive from the config vars — but it sources [lib/common.sh](lib/common.sh) relative
 to its own location, so `lib/` (and `modules.sh`) must be deployed alongside it.

@@ -31,30 +31,12 @@ parse_phase() {
     esac
 }
 
-# ensure_dirs MODULE_DIR
-#   Create the standard version-directory skeleton (DIST src build install) under
-#   the given version directory. Idempotent (mkdir -p). Used by the download phase
-#   so the transferred tree is install-ready.
+# ensure_dirs DIR...
+#   Create each given directory (and parents). Idempotent (mkdir -p). The download
+#   phase uses it to create just DIST; the install phase uses it to create the
+#   build-side dirs (src/build/install) at the location from the target's config.
 ensure_dirs() {
-    local module_dir="$1"
-    mkdir -p "$module_dir/DIST" \
-             "$module_dir/src" \
-             "$module_dir/build" \
-             "$module_dir/install"
-}
-
-# require_dirs DIR...
-#   Exit 1 if any of the given directories is missing. Used by the install phase
-#   to assert the (downloaded + transferred) layout exists before building.
-require_dirs() {
-    local d
-    for d in "$@"; do
-        if [ ! -d "$d" ]; then
-            echo "ERROR: required directory does not exist: $d" >&2
-            echo "       Run the 'download' phase first, or transfer the version directory here." >&2
-            exit 1
-        fi
-    done
+    mkdir -p "$@"
 }
 
 # require_artifact PATH [gzip]
@@ -66,7 +48,7 @@ require_artifact() {
     local verify="${2:-}"
     if [ ! -s "$path" ]; then
         echo "ERROR: required file is missing or empty: $path" >&2
-        echo "       Run the 'download' phase first, or transfer the version directory here." >&2
+        echo "       Run the 'download' phase first, or copy the file (e.g. the DIST tarball) here." >&2
         exit 1
     fi
     if [ "$verify" = "gzip" ] && ! gzip -t "$path" 2>/dev/null; then

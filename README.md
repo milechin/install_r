@@ -21,8 +21,8 @@ on AlmaLinux / Rocky / Ubuntu.
 
 | Phase | What it does | Needs |
 |---|---|---|
-| `download` | Creates the `DIST/src/build/install` skeleton and fetches the R source tarball into `DIST/`. | Network. **No** toolchain. |
-| `install` | Extracts, configures, builds, `make install`s, copies gcc runtime libs, runs `javareconf`. Requires the skeleton + tarball to exist. | Toolchain (`modules.sh`). **No** network. |
+| `download` | Creates **only the `DIST/` folder** and fetches the R source tarball into it. `DIST/` (the tarball) is what you transfer. | Network. **No** toolchain. |
+| `install` | Requires the `DIST/` tarball; creates `src/build/install` (from this machine's config), extracts, configures, builds, `make install`s, copies gcc runtime libs, runs `javareconf`. | Toolchain (`modules.sh`). **No** network. |
 | `all` (default) | `download` then `install` in one run — the original one-shot behavior. | Both. |
 
 ### Configuration
@@ -65,15 +65,18 @@ in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`, `make.install.out
    ./install_R.sh download
    ```
 
-2. **Transfer** the version directory to the target machine:
+2. **Transfer** the `DIST/` folder (the tarball) to the target's `$MODULE_DIR/DIST`:
 
    ```bash
-   tar czf r-4.5.2-dist.tar.gz -C /share/pkg.8/r 4.5.2     # online machine
+   tar czf r-4.5.2-dist.tar.gz -C /share/pkg.8/r/4.5.2 DIST   # online machine
    # copy r-4.5.2-dist.tar.gz across (scp/rsync/shared FS), then on the target:
-   tar xzf r-4.5.2-dist.tar.gz -C /share/pkg.8/r
+   mkdir -p /share/pkg.8/r/4.5.2 && tar xzf r-4.5.2-dist.tar.gz -C /share/pkg.8/r/4.5.2
    ```
 
-3. **Install/build** on the target (no network; needs the toolchain):
+   (Or just copy the single `R-4.5.2.tar.gz` into the target's `DIST/`.)
+
+3. **Install/build** on the target (no network; needs the toolchain). The
+   `install` phase creates `src/build/install` from the target's own `config.sh`:
 
    ```bash
    source config.sh
@@ -81,9 +84,8 @@ in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`, `make.install.out
    ./install_R.sh install
    ```
 
-   `install` refuses to start unless the `DIST/src/build/install` layout and the
-   `R-$VERSION.tar.gz` tarball are present (it also `gzip -t`s the tarball to catch
-   a truncated transfer).
+   `install` refuses to start unless the `DIST/R-$VERSION.tar.gz` tarball is present
+   (it also `gzip -t`s it to catch a truncated transfer), then creates `src/build/install`.
 
 > `lib/common.sh` and `modules.sh` must be deployed alongside `install_R.sh` — the
 > script sources `lib/common.sh` relative to its own location.

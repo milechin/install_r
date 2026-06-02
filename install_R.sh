@@ -92,34 +92,41 @@ copy_gcc_runtime_lib() {
 
 # ---------------------------------------------------------------------------
 # DOWNLOAD phase: fetch the R source into DIST. Network required; no toolchain.
-# Creates the full DIST/src/build/install skeleton so the version directory is
-# install-ready after transfer to another machine.
+# Creates ONLY the DIST folder - the build-side directories (src/build/install)
+# are created by the install phase from the target machine's own config. DIST
+# (the tarball) is the unit you transfer to the build/target machine.
 # ---------------------------------------------------------------------------
 run_download() {
     echo "=== download: R $VERSION -> $MODULE_DIR/DIST ==="
-    ensure_dirs "$MODULE_DIR"
+    ensure_dirs "$MODULE_DIR/DIST"
 
     # Download source from https://cran.r-project.org/ . -O writes to a fixed
     # path so a re-run overwrites cleanly instead of creating R-$VERSION.tar.gz.1
     wget -O "$SRC_TARBALL" "$CRAN_SRC_URL/R-$VERSION.tar.gz"
 
     echo "Downloaded $SRC_TARBALL"
-    echo "To build on another machine, transfer the version directory, e.g.:"
-    echo "    tar czf r-$VERSION-dist.tar.gz -C $R_PKG_BASE $VERSION"
+    echo "To build on another machine, transfer the DIST folder, e.g.:"
+    echo "    tar czf r-$VERSION-dist.tar.gz -C $MODULE_DIR DIST"
+    echo "then on the target (after 'source config.sh'): place it at \$MODULE_DIR/DIST and run './install_R.sh install'"
 }
 
 
 # ---------------------------------------------------------------------------
 # INSTALL phase: build + install from the fetched source. Toolchain required
-# (source config.sh + modules.sh); no network. Requires the skeleton + tarball.
+# (source config.sh + modules.sh); no network. Needs the DIST tarball present
+# (downloaded here, or transferred to $MODULE_DIR/DIST from another machine).
 # ---------------------------------------------------------------------------
 run_install() {
     echo "=== install: building R $VERSION into $INSTALL_DIR ==="
 
-    # Confirm the expected layout and the downloaded tarball are present before
-    # doing anything (clear failure instead of a confusing error mid-build).
-    require_dirs "$MODULE_DIR" "$MODULE_DIR/DIST" "$SRC_DIR" "$BUILD_DIR" "$INSTALL_DIR"
+    # Require the source tarball (the only thing the download phase / transfer
+    # provides); fail clearly up front instead of mid-build. gzip -t also catches
+    # a truncated transfer.
     require_artifact "$SRC_TARBALL" gzip
+
+    # Create the build-side directories at the location from this machine's config
+    # (the target owns its own layout via config.sh). Idempotent.
+    ensure_dirs "$SRC_DIR" "$BUILD_DIR" "$INSTALL_DIR"
 
     # untar the sources into the R source directory
     mkdir -p "$R_SOURCE_DIR"
