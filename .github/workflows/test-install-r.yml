@@ -12,6 +12,8 @@ on:
     paths:
       - 'install_R.sh'
       - 'config.sh'
+      - 'modules.sh'
+      - 'lib/**'
       - 'install_bioconductor.R'
       - 'test/**'
       - '.github/workflows/test-install-r.yml'
@@ -19,6 +21,8 @@ on:
     paths:
       - 'install_R.sh'
       - 'config.sh'
+      - 'modules.sh'
+      - 'lib/**'
       - 'install_bioconductor.R'
       - 'test/**'
       - '.github/workflows/test-install-r.yml'

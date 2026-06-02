@@ -1,20 +1,19 @@
 #!/bin/bash
 #
-# Configuration parameters for the R install/migration scripts.
-# Source this file before running install_R.sh:
+# Configuration PARAMETERS for the R install/migration scripts. This file only
+# exports variables and runs no `module load`s, so it is safe to source on any
+# machine - including a module-less download host.
 #
-#     source config.sh
-#     ./install_R.sh
+#   Download (network, no toolchain):
+#       source config.sh
+#       ./install_R.sh download
+#
+#   Build/install (needs the toolchain - also source modules.sh):
+#       source config.sh
+#       source modules.sh
+#       ./install_R.sh                # = all (download + install)
 #
 # Edit the values below for the version you are building.
-
-# Build toolchain modules. These are loaded when this file is sourced, so the
-# environment is ready before install_R.sh runs. Comment out the flexiblas line
-# to build R without flexiblas BLAS/LAPACK support (install_R.sh detects whether
-# a flexiblas module is loaded).
-module load texlive/2022
-module load gcc/12.2.0
-module load flexiblas/3.3.1
 
 # R version to build/install (e.g. 4.2.3)
 export VERSION="4.2.3"

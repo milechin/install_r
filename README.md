@@ -4,8 +4,10 @@ System-administration scripts for building R from source on the Boston Universit
 SCC cluster (under `/share/pkg.8/r/`), plus a test harness for exercising the build
 on AlmaLinux / Rocky / Ubuntu.
 
-- [`install_R.sh`](install_R.sh) — build + install one R version from source.
-- [`config.sh`](config.sh) — all the parameters and module loads for the build.
+- [`install_R.sh`](install_R.sh) — build one R version from source, in phases (`download` / `install` / `all`).
+- [`config.sh`](config.sh) — build **parameters** (version, paths, URLs). No module loads; safe to source anywhere.
+- [`modules.sh`](modules.sh) — the build-toolchain `module load`s (texlive, gcc, flexiblas). Sourced only for building.
+- [`lib/common.sh`](lib/common.sh) — shared shell helpers (phase parsing, directory/artifact checks). Must be deployed next to `install_R.sh`.
 - [`install_bioconductor.R`](install_bioconductor.R) — installs BiocManager + tidyverse (separate step).
 - [`test/`](test/) — run `install_R.sh` end-to-end in a sandbox (see [Running the tests](#running-the-tests)).
 
@@ -15,23 +17,17 @@ on AlmaLinux / Rocky / Ubuntu.
 
 ## Building a new R version
 
-### 1. Prerequisites
+`install_R.sh` runs in **phases**:
 
-Run on the cluster in a shell where the `module` command is available (a login or
-interactive shell). The toolchain modules are loaded for you by `config.sh`.
+| Phase | What it does | Needs |
+|---|---|---|
+| `download` | Creates the `DIST/src/build/install` skeleton and fetches the R source tarball into `DIST/`. | Network. **No** toolchain. |
+| `install` | Extracts, configures, builds, `make install`s, copies gcc runtime libs, runs `javareconf`. Requires the skeleton + tarball to exist. | Toolchain (`modules.sh`). **No** network. |
+| `all` (default) | `download` then `install` in one run — the original one-shot behavior. | Both. |
 
-### 2. Create the version directory
+### Configuration
 
-`install_R.sh` expects a fixed layout under `$R_PKG_BASE/$VERSION` and will refuse
-to run if it is missing. Create it first (replace `4.5.2` with your version):
-
-```bash
-mkdir -p /share/pkg.8/r/4.5.2/{DIST,src,build,install}
-```
-
-### 3. Edit the configuration
-
-Open [`config.sh`](config.sh) and set at least `VERSION`. Review the rest:
+Open [`config.sh`](config.sh) and set at least `VERSION`:
 
 | Variable | What it is |
 |---|---|
@@ -40,26 +36,59 @@ Open [`config.sh`](config.sh) and set at least `VERSION`. Review the rest:
 | `CRAN_SRC_URL` | CRAN source base URL; the `R-4` segment tracks the R major version |
 | `R_CONFIGURE_OPTS` | configure flags applied on every build |
 | `R_FLEXIBLAS_CONFIGURE_OPTS` | BLAS/LAPACK flags, added only when a flexiblas module is loaded |
-| `module load …` (top of file) | Pinned toolchain: `texlive`, `gcc`, `flexiblas` |
 
-### 4. Build
+The pinned toolchain (`texlive`, `gcc`, `flexiblas`) lives in [`modules.sh`](modules.sh).
+`config.sh` and `modules.sh` must be **sourced** (not executed) so their variables
+and loaded modules carry into `install_R.sh`.
+
+### Option A — build in one step (online cluster node)
 
 ```bash
-source config.sh      # exports the variables AND loads the toolchain modules
-./install_R.sh
+source config.sh      # parameters
+source modules.sh     # build toolchain
+./install_R.sh        # = "all": download + install
 ```
 
-`config.sh` must be **sourced** (not executed) so its variables and loaded modules
-carry into `install_R.sh`. The script runs with `set -e`/`pipefail`, verifies the
-config was sourced and the directories exist, then downloads, configures, builds,
-`make install`s, copies the gcc runtime libraries into R's `lib`, and runs
-`R CMD javareconf` against `/usr/java/default`. `make check` is run but is
-non-fatal (failures are logged, not aborting).
+The script runs with `set -e`/`pipefail`, verifies the config was sourced, then
+downloads, configures, builds, `make install`s, copies the gcc runtime libraries
+into R's `lib`, and runs `R CMD javareconf` against `/usr/java/default`. `make
+check` is run but is non-fatal (failures are logged, not aborting). Build logs land
+in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`, `make.install.output`,
+`make.check.output`).
 
-Logs land in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`,
-`make.install.output`, `make.check.output`).
+### Option B — download here, build on another (offline) machine
 
-### 5. Install Bioconductor + tidyverse (separate step)
+1. **Download** on a machine with internet (no toolchain or module system needed):
+
+   ```bash
+   source config.sh
+   ./install_R.sh download
+   ```
+
+2. **Transfer** the version directory to the target machine:
+
+   ```bash
+   tar czf r-4.5.2-dist.tar.gz -C /share/pkg.8/r 4.5.2     # online machine
+   # copy r-4.5.2-dist.tar.gz across (scp/rsync/shared FS), then on the target:
+   tar xzf r-4.5.2-dist.tar.gz -C /share/pkg.8/r
+   ```
+
+3. **Install/build** on the target (no network; needs the toolchain):
+
+   ```bash
+   source config.sh
+   source modules.sh
+   ./install_R.sh install
+   ```
+
+   `install` refuses to start unless the `DIST/src/build/install` layout and the
+   `R-$VERSION.tar.gz` tarball are present (it also `gzip -t`s the tarball to catch
+   a truncated transfer).
+
+> `lib/common.sh` and `modules.sh` must be deployed alongside `install_R.sh` — the
+> script sources `lib/common.sh` relative to its own location.
+
+### Install Bioconductor + tidyverse (separate step)
 
 After confirming R works, install the base package set. `install_R.sh` prints the
 exact command at the end; it is:

@@ -23,16 +23,20 @@ fi
 # 2. Load the test config (exports VERSION, R_PKG_BASE, ...; no module loads).
 source "$HERE/test_config.sh"
 
-# 3. Create the directory layout install_R.sh requires.
-bash "$HERE/setup_test_env.sh"
+# 3. DOWNLOAD phase: creates the DIST/src/build/install skeleton and fetches the
+#    R source tarball. (Exercises the download phase; replaces setup_test_env.sh.)
+echo "=== install_R.sh download for R $VERSION ==="
+bash "$REPO_ROOT/install_R.sh" download
 
 # 4. install_R.sh's final banner references $R_PKG_BASE/install_bioconductor.R;
 #    copy it into the sandbox so that printed path is valid (it is only echoed).
+#    ($R_PKG_BASE now exists because the download phase created the skeleton.)
 cp "$REPO_ROOT/install_bioconductor.R" "$R_PKG_BASE/"
 
-# 5. Build R. install_R.sh inherits the exported config vars from step 2.
-echo "=== Running install_R.sh for R $VERSION ==="
-bash "$REPO_ROOT/install_R.sh"
+# 5. INSTALL phase: build + install from the fetched source (no module loads in
+#    CI; the toolchain comes from install_deps.sh).
+echo "=== install_R.sh install for R $VERSION ==="
+bash "$REPO_ROOT/install_R.sh" install
 
 # 6. Smoke-test the freshly built R.
 R_BIN="$R_PKG_BASE/$VERSION/install/bin/R"
