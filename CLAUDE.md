@@ -88,7 +88,10 @@ to the SCC, was removed in favor of these two portable steps.)
   doesn't fetch packages the air-gapped target can't install. The air-gap approach
   uses **source** tarballs (compiler/glibc-independent); they compile on the target,
   so the target needs a compatible toolchain. CRAN metadata carries no compiler/glibc
-  constraint, so there is nothing to filter on that axis.
+  constraint, so there is nothing to filter on that axis. By default the download
+  closure is hard deps only (`Depends`/`Imports`/`LinkingTo`); `INCLUDE_SUGGESTS=1`
+  also pulls the listed packages' `Suggests` (top-level, plus their hard deps) to
+  mirror `install.packages(dependencies = TRUE)` — a much larger closure.
 - Hard-coded versions (`gcc/12.2.0`, `flexiblas/3.3.1`, `cmake/3.22.2`, the
   `pkg.7`→`pkg.8`/alma8 paths, `R-4/` URL path) are environment facts, not defaults to
   generalize. Changing them is a real migration decision.

@@ -147,8 +147,9 @@ Knobs (environment variables):
 | `CRAN_REPO` | download | CRAN mirror to download from (default `https://cran.r-project.org`) |
 | `TARGET_R_VERSION` | download | R version the downloads must be compatible with (default: the R running the download). Set this when the online machine's R differs from the target's, so only target-compatible package versions are fetched. |
 | `TARGET_OS` | download | OS the downloads must apply to: `linux` (default), `macos`, or `windows` |
+| `INCLUDE_SUGGESTS` | download | Set to `1` to also download the `Suggests` of the listed packages (plus those packages' hard deps), matching what an `install.packages(dependencies = TRUE)` would pull. Off by default; this can grow the closure substantially (e.g. one small package went from 3 to 44 tarballs in testing). |
 
-The download step prints the R-version and OS criteria it is resolving against.
+The download step prints the R-version, OS, and Suggests criteria it is resolving against.
 
 ---
 

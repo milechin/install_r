@@ -134,10 +134,16 @@ download_packages <- function(packages, dist_dir) {
   target_os <- Sys.getenv("TARGET_OS", "linux")
   os_type <- os_type_for(target_os)
 
+  include_suggests <- tolower(Sys.getenv("INCLUDE_SUGGESTS", "")) %in% c("1", "true", "yes")
+
   cat("Download repository (CRAN):", cran, "\n")
   cat("Resolving packages for R", target_R, "(override via TARGET_R_VERSION)\n")
   cat("Resolving packages for OS", target_os,
       paste0("[OS_type=", os_type, "]"), "(override via TARGET_OS)\n")
+  cat("Suggests:", if (include_suggests)
+        "included for listed packages (INCLUDE_SUGGESTS set)"
+      else
+        "excluded (set INCLUDE_SUGGESTS=1 to include)", "\n")
 
   ap <- available.packages(repos = cran, type = "source",
                            filters = target_filters(target_R, os_type))
@@ -150,9 +156,27 @@ download_packages <- function(packages, dist_dir) {
         paste(dropped, collapse = ", "), "\n")
   }
 
-  deps <- tools::package_dependencies(wanted, db = ap, recursive = TRUE,
-                                      which = c("Depends", "Imports", "LinkingTo"))
-  closure <- intersect(unique(c(wanted, unlist(deps, use.names = FALSE))), rownames(ap))
+  hard_which <- c("Depends", "Imports", "LinkingTo")
+
+  # Recursive hard-dependency closure of the listed packages.
+  deps <- unlist(tools::package_dependencies(wanted, db = ap, recursive = TRUE,
+                                             which = hard_which), use.names = FALSE)
+  closure_pkgs <- unique(c(wanted, deps))
+
+  # Optionally mirror what offline install.packages(dependencies = TRUE) would also
+  # pull: the Suggests of the *listed* packages, plus those packages' recursive hard
+  # deps (Suggests are not taken recursively - that matches install.packages, and
+  # avoids an unbounded closure).
+  if (include_suggests) {
+    sug <- unlist(tools::package_dependencies(wanted, db = ap, recursive = FALSE,
+                                              which = "Suggests"), use.names = FALSE)
+    sug <- intersect(sug, rownames(ap))
+    sug_deps <- unlist(tools::package_dependencies(sug, db = ap, recursive = TRUE,
+                                                   which = hard_which), use.names = FALSE)
+    closure_pkgs <- unique(c(closure_pkgs, sug, sug_deps))
+  }
+
+  closure <- intersect(closure_pkgs, rownames(ap))
   cat("Resolved", length(wanted), "requested ->", length(closure),
       "packages with dependencies.\n")
 
