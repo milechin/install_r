@@ -28,11 +28,11 @@ bash "$HERE/setup_test_env.sh"
 
 # 4. install_R.sh's final banner references $R_PKG_BASE/install_bioconductor.R;
 #    copy it into the sandbox so that printed path is valid (it is only echoed).
-cp "$REPO_ROOT/install_bioconductor.R" "$R_PKG_BASE/"
+cp "$REPO_ROOT/install_R/install_bioconductor.R" "$R_PKG_BASE/"
 
 # 5. Build R. install_R.sh inherits the exported config vars from step 2.
 echo "=== Running install_R.sh for R $VERSION ==="
-bash "$REPO_ROOT/install_R.sh"
+bash "$REPO_ROOT/install_R/install_R.sh"
 
 # 6. Smoke-test the freshly built R.
 R_BIN="$R_PKG_BASE/$VERSION/install/bin/R"

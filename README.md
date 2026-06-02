@@ -4,9 +4,11 @@ System-administration scripts for building R from source on the Boston Universit
 SCC cluster (under `/share/pkg.8/r/`), plus a test harness for exercising the build
 on AlmaLinux / Rocky / Ubuntu.
 
-- [`install_R.sh`](install_R.sh) — build + install one R version from source.
-- [`config.sh`](config.sh) — all the parameters and module loads for the build.
-- [`install_bioconductor.R`](install_bioconductor.R) — installs BiocManager + tidyverse (separate step).
+The R-build workflow lives in [`install_R/`](install_R/) (it is run infrequently):
+
+- [`install_R/install_R.sh`](install_R/install_R.sh) — build + install one R version from source.
+- [`install_R/config.sh`](install_R/config.sh) — all the parameters and module loads for the build.
+- [`install_R/install_bioconductor.R`](install_R/install_bioconductor.R) — installs BiocManager + tidyverse (separate step).
 - [`test/`](test/) — run `install_R.sh` end-to-end in a sandbox (see [Running the tests](#running-the-tests)).
 
 > For package migration between R versions, see `install_packages.sh` (not covered here).
@@ -31,30 +33,37 @@ mkdir -p /share/pkg.8/r/4.5.2/{DIST,src,build,install}
 
 ### 3. Edit the configuration
 
-Open [`config.sh`](config.sh) and set at least `VERSION`. Review the rest:
+Open [`install_R/config.sh`](install_R/config.sh) and set at least `VERSION`. Review the rest:
 
 | Variable | What it is |
 |---|---|
 | `VERSION` | R version to build, e.g. `4.5.2` |
 | `R_PKG_BASE` | Base install dir (no trailing slash), e.g. `/share/pkg.8/r` |
 | `CRAN_SRC_URL` | CRAN source base URL; the `R-4` segment tracks the R major version |
+| `SOURCE_TARBALL` | Empty → download from CRAN. A path → use that already-downloaded tarball instead (for offline builds) |
 | `R_CONFIGURE_OPTS` | configure flags applied on every build |
 | `R_FLEXIBLAS_CONFIGURE_OPTS` | BLAS/LAPACK flags, added only when a flexiblas module is loaded |
 | `module load …` (top of file) | Pinned toolchain: `texlive`, `gcc`, `flexiblas` |
 
+**Downloading vs. a local tarball.** By default the source is downloaded from CRAN.
+To build on a machine without internet, download `R-$VERSION.tar.gz` elsewhere, copy
+it over, and set `SOURCE_TARBALL` to its path — `install_R.sh` then uses that file
+(copying it into `DIST/`) instead of fetching.
+
 ### 4. Build
 
 ```bash
+cd install_R
 source config.sh      # exports the variables AND loads the toolchain modules
 ./install_R.sh
 ```
 
 `config.sh` must be **sourced** (not executed) so its variables and loaded modules
 carry into `install_R.sh`. The script runs with `set -e`/`pipefail`, verifies the
-config was sourced and the directories exist, then downloads, configures, builds,
-`make install`s, copies the gcc runtime libraries into R's `lib`, and runs
-`R CMD javareconf` against `/usr/java/default`. `make check` is run but is
-non-fatal (failures are logged, not aborting).
+config was sourced and the directories exist, then obtains the source (download or
+local tarball), configures, builds, `make install`s, copies the gcc runtime
+libraries into R's `lib`, and runs `R CMD javareconf` against `/usr/java/default`.
+`make check` is run but is non-fatal (failures are logged, not aborting).
 
 Logs land in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`,
 `make.install.output`, `make.check.output`).
@@ -91,7 +100,7 @@ This will, in order:
    and create the `/usr/java/default` symlink — see [`test/install_deps.sh`](test/install_deps.sh).
 2. Load [`test/test_config.sh`](test/test_config.sh) (a `config.sh` with no module loads).
 3. Create the sandbox directory layout — [`test/setup_test_env.sh`](test/setup_test_env.sh).
-4. Run [`install_R.sh`](install_R.sh).
+4. Run [`install_R/install_R.sh`](install_R/install_R.sh).
 5. Smoke-test the built R (`R --version` and a script run).
 
 ### In containers (AlmaLinux / Rocky)
@@ -120,7 +129,7 @@ SKIP_DEPS=1 ./test/run_test.sh
 
 - The test deliberately uses a **lighter configure** (`--with-x=no
   --without-recommended-packages`) and builds in parallel (`MAKEFLAGS=-j$(nproc)`)
-  to keep CI fast; production options live in [`config.sh`](config.sh).
+  to keep CI fast; production options live in [`install_R/config.sh`](install_R/config.sh).
 - `install_deps.sh` uses `sudo` only when not already root, so it works both in
   containers (root) and on a dev box.
 - Build artifacts go to `test/test_pkg/` and are ignored by git.
@@ -138,7 +147,7 @@ you run locally.
 It triggers on:
 
 - **push** to `main` and **pull requests** — but only when a build/test file
-  changes (`install_R.sh`, `config.sh`, `install_bioconductor.R`, `test/**`, or the
+  changes (`install_R/**`, `test/**`, or the
   workflow itself), so unrelated commits don't kick off a ~build.
 - **manual dispatch** (Actions tab → *Test install_R.sh* → *Run workflow*).
 

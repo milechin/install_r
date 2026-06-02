@@ -10,16 +10,12 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'install_R.sh'
-      - 'config.sh'
-      - 'install_bioconductor.R'
+      - 'install_R/**'
       - 'test/**'
       - '.github/workflows/test-install-r.yml'
   pull_request:
     paths:
-      - 'install_R.sh'
-      - 'config.sh'
-      - 'install_bioconductor.R'
+      - 'install_R/**'
       - 'test/**'
       - '.github/workflows/test-install-r.yml'
   workflow_dispatch:

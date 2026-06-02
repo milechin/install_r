@@ -14,20 +14,27 @@ creates before running the build.
 
 ## The two workflows
 
-**1. Build a new R version from source — [config.sh](config.sh) + [install_R.sh](install_R.sh)**
-Edit [config.sh](config.sh) (at minimum `VERSION`), then:
+**1. Build a new R version from source — the [install_R/](install_R/) subdirectory**
+This workflow (run infrequently) lives in `install_R/`:
+[install_R/install_R.sh](install_R/install_R.sh),
+[install_R/config.sh](install_R/config.sh),
+[install_R/install_bioconductor.R](install_R/install_bioconductor.R).
+Edit `config.sh` (at minimum `VERSION`), then:
 ```bash
+cd install_R
 source config.sh
 ./install_R.sh
 ```
 `config.sh` is sourced (not executed) because it both exports parameters
-(`VERSION`, `R_PKG_BASE`, `CRAN_SRC_URL`, the configure-option strings) **and** runs
-the `module load`s (texlive/gcc/flexiblas) so the build environment is ready; those
-exported vars and loaded modules propagate into the `install_R.sh` child process.
+(`VERSION`, `R_PKG_BASE`, `CRAN_SRC_URL`, `SOURCE_TARBALL`, the configure-option
+strings) **and** runs the `module load`s (texlive/gcc/flexiblas) so the build
+environment is ready; those exported vars and loaded modules propagate into the
+`install_R.sh` child process.
 
 `install_R.sh` runs `set -e`/`pipefail`, validates that `config.sh` was sourced and
-that the version directory layout exists, then: downloads the CRAN tarball into
-`DIST/`, extracts into `src/R-$VERSION`, configures, builds, `make install`s (with
+that the version directory layout exists, then: obtains the source into `DIST/`
+(downloads from CRAN, or uses `SOURCE_TARBALL` if set — a local tarball for offline
+builds), extracts into `src/R-$VERSION`, configures, builds, `make install`s (with
 `make check` kept non-fatal), copies GCC runtime shared libs (`libgfortran`,
 `libstdc++`, `libgcc_s`) into the R `lib` so R starts without the gcc module loaded,
 and runs `R CMD javareconf` against `/usr/java/default` so R tracks the system default
@@ -35,10 +42,10 @@ Java (a Java upgrade re-points the symlink and R follows, without breaking rJava
 It is **location-independent** — all paths derive from the config vars, so it no
 longer matters which directory you launch it from.
 
-Installing BiocManager + tidyverse via [install_bioconductor.R](install_bioconductor.R)
+Installing BiocManager + tidyverse via [install_R/install_bioconductor.R](install_R/install_bioconductor.R)
 is **a separate post-install step** (run it by hand after confirming R works); the
 build script prints the exact command at the end.
-Toolchain is pinned in `config.sh`: `gcc/12.2.0`, `texlive/2022`, `flexiblas/3.3.1`.
+Toolchain is pinned in `install_R/config.sh`: `gcc/12.2.0`, `texlive/2022`, `flexiblas/3.3.1`.
 
 **2. Migrate packages from an old R version to a new one — [install_packages.sh](install_packages.sh)**
 `./install_packages.sh <old_version> <new_version>`. Loads `R/<old>`, dumps the
@@ -71,5 +78,5 @@ installed package names to `installed_r_packages.txt` via
 - Hard-coded versions (`gcc/12.2.0`, `flexiblas/3.3.1`, `cmake/3.22.2`, the
   `pkg.7`→`pkg.8`/alma8 paths, `R-4/` URL path) are environment facts, not defaults to
   generalize. Changing them is a real migration decision.
-- The header comments in [install_R.sh](install_R.sh) record the change history
+- The header comments in [install_R/install_R.sh](install_R/install_R.sh) record the change history
   (pkg.7→pkg.8, flexiblas added) — keep updating them when modifying the build.

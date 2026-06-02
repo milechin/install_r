@@ -45,14 +45,24 @@ for d in "$MODULE_DIR" "$MODULE_DIR/DIST" "$SRC_DIR" "$BUILD_DIR" "$INSTALL_DIR"
     fi
 done
 
-cd $MODULE_DIR/DIST;
-# Download source from https://cran.r-project.org/
-wget $CRAN_SRC_URL/R-$VERSION.tar.gz
+# Obtain the R source tarball into DIST. Either download it from CRAN, or - if
+# SOURCE_TARBALL (config.sh) points at an already-downloaded copy - use that
+# instead (e.g. a tarball transferred to a machine with no internet access).
+TARBALL="$MODULE_DIR/DIST/R-$VERSION.tar.gz"
+if [ -n "$SOURCE_TARBALL" ]; then
+    echo "Using local source tarball: $SOURCE_TARBALL"
+    [ -f "$SOURCE_TARBALL" ] || { echo "ERROR: SOURCE_TARBALL not found: $SOURCE_TARBALL" >&2; exit 1; }
+    cp -f "$SOURCE_TARBALL" "$TARBALL"
+else
+    # Download source from https://cran.r-project.org/ . -O writes a fixed path so
+    # a re-run overwrites cleanly instead of creating R-$VERSION.tar.gz.1
+    wget -O "$TARBALL" "$CRAN_SRC_URL/R-$VERSION.tar.gz"
+fi
 
 
 # untar the sources into the R source directory
 mkdir -p $R_SOURCE_DIR
-tar xzf $MODULE_DIR/DIST/R-$VERSION.tar.gz -C $R_SOURCE_DIR --strip-components=1
+tar xzf "$TARBALL" -C $R_SOURCE_DIR --strip-components=1
 
 # configure
 # (build modules - texlive, gcc, flexiblas - are loaded by config.sh)

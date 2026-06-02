@@ -27,6 +27,12 @@ export R_PKG_BASE="/share/pkg.8/r"
 # install_R.sh downloads $CRAN_SRC_URL/R-$VERSION.tar.gz
 export CRAN_SRC_URL="http://cran.r-project.org/src/base/R-4"
 
+# Source tarball selection:
+#   empty  -> download R-$VERSION.tar.gz from $CRAN_SRC_URL (the default)
+#   a path -> use that already-downloaded tarball instead of fetching (e.g. a copy
+#             transferred to a machine with no internet). It is copied into DIST.
+export SOURCE_TARBALL=""
+
 # R configure options applied on every build. The install --prefix is added by
 # install_R.sh from $INSTALL_DIR, so it is not listed here.
 export R_CONFIGURE_OPTS="--enable-R-shlib --enable-memory-profiling --enable-R-profiling --with-valgrind-instrumentation=2"
