@@ -2,24 +2,24 @@
 #
 # Three modes, selected by the first argument:
 #
-#   Rscript install_packages.R online  [list_file]   # install from CRAN (default)
-#   Rscript install_packages.R download [list_file]   # download source tarballs -> DIST
-#   Rscript install_packages.R offline [list_file]    # install from a local DIST repo
+#   Rscript install_packages/install_packages.R online  [list_file]   # install from CRAN (default)
+#   Rscript install_packages/install_packages.R download [list_file]   # download source tarballs -> DIST
+#   Rscript install_packages/install_packages.R offline [list_file]    # install from a local DIST repo
 #
 # If the first argument is not one of those mode keywords it is treated as the
 # list file and the mode defaults to "online", so the older form still works:
 #
-#   Rscript install_packages.R [list_file]            # == online
+#   Rscript install_packages/install_packages.R [list_file]            # == online
 #
 # The list file defaults to installed_r_packages.txt (produced by list_packages.R).
 #
 # Air-gap workflow:
-#   1. On an internet-connected machine:  Rscript install_packages.R download list.txt
+#   1. On an internet-connected machine:  Rscript install_packages/install_packages.R download list.txt
 #      -> downloads the source tarballs for every package in the list PLUS their hard
 #         dependencies (Depends/Imports/LinkingTo, recursive) into the DIST folder, and
 #         writes a PACKAGES index so DIST is a self-contained local repository.
 #   2. Copy the DIST folder to the air-gapped target's DIST folder.
-#   3. On the target:  Rscript install_packages.R offline list.txt
+#   3. On the target:  Rscript install_packages/install_packages.R offline list.txt
 #      -> installs from DIST (file:// repo), no network access.
 #
 # Environment knobs:
@@ -229,7 +229,7 @@ download_packages <- function(packages, dist_dir) {
   tools::write_PACKAGES(dist_dir, type = "source")
   cat("Wrote PACKAGES index;", dist_dir, "is now a local source repository.\n\n")
   cat("Next: copy this DIST folder to the air-gapped target, then run:\n")
-  cat("  DIST_DIR=", dist_dir, " Rscript install_packages.R offline <list_file>\n", sep = "")
+  cat("  DIST_DIR=", dist_dir, " Rscript ", self, " offline <list_file>\n", sep = "")
 }
 
 # offline: install from the local DIST repo (file://), no network.
@@ -267,6 +267,11 @@ install_online <- function(packages) {
 MODES <- c("online", "download", "offline")
 args  <- commandArgs(trailingOnly = TRUE)
 
+# How this script was invoked (e.g. "install_packages/install_packages.R" or a full
+# path), so the retry/next-step commands we print are copy-pasteable as-is.
+self <- sub("^--file=", "", grep("^--file=", commandArgs(), value = TRUE))
+if (length(self) == 0 || !nzchar(self)) self <- "install_packages.R"
+
 if (length(args) >= 1 && args[1] %in% MODES) {
   mode          <- args[1]
   pkg_list_file <- if (length(args) >= 2) args[2] else "installed_r_packages.txt"
@@ -298,7 +303,7 @@ if (mode != "download") {
         " full build output per failure in install_logs/; names written to ", failed_file, ".\n", sep = "")
     prefix <- if (mode == "offline") paste0("DIST_DIR=", shQuote(dist_dir), " ") else ""
     cat("To retry only the failed packages, rerun:\n")
-    cat("  ", prefix, "Rscript install_packages.R ", mode, " ", failed_file, "\n", sep = "")
+    cat("  ", prefix, "Rscript ", self, " ", mode, " ", failed_file, "\n", sep = "")
     cat("(To retry one package, put just its name under a \"Package\" header in a",
         " file and pass that file instead.)\n", sep = "")
   }

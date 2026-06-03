@@ -11,8 +11,9 @@ The R-build workflow lives in [`install_R/`](install_R/) (it is run infrequently
 - [`install_R/install_bioconductor.R`](install_R/install_bioconductor.R) — installs BiocManager + tidyverse (separate step).
 - [`test/`](test/) — run `install_R.sh` end-to-end in a sandbox (see [Running the tests](#running-the-tests)).
 
-A separate workflow migrates installed packages from an old R version to a new one
-— see [Migrating R packages to a new R version](#migrating-r-packages-to-a-new-r-version).
+A separate workflow in [`install_packages/`](install_packages/) migrates installed
+packages from an old R version to a new one — see
+[Migrating R packages to a new R version](#migrating-r-packages-to-a-new-r-version).
 
 ---
 
@@ -92,10 +93,10 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
 1. **Dump the old version's package list** — under the **old** R:
 
    ```bash
-   Rscript list_packages.R
+   Rscript install_packages/list_packages.R
    ```
 
-   [`list_packages.R`](list_packages.R) calls `installed.packages()`, sorts by name,
+   [`list_packages.R`](install_packages/list_packages.R) calls `installed.packages()`, sorts by name,
    and writes the **package names** (one per line, with a `Package` header) to
    **`installed_r_packages.txt`** in the current directory. This file is the record of
    what was installed under the old R that needs to come across to the new one.
@@ -104,11 +105,11 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    available, since packages build from source):
 
    ```bash
-   Rscript install_packages.R                    # reads ./installed_r_packages.txt
-   Rscript install_packages.R path/to/list.txt   # or point at a specific list file
+   Rscript install_packages/install_packages.R                    # reads ./installed_r_packages.txt
+   Rscript install_packages/install_packages.R path/to/list.txt   # or point at a specific list file
    ```
 
-   [`install_packages.R`](install_packages.R) reads the package list, computes which
+   [`install_packages.R`](install_packages/install_packages.R) reads the package list, computes which
    packages are not yet present in the new R (`setdiff` against
    `installed.packages()`), and installs the missing ones from CRAN. Per-package
    results are logged to `package_installation_log.txt` (`SUCCESS:` / `FAILED:` with
@@ -132,7 +133,7 @@ system `-devel` libraries a given package needs) must be available on the machin
 
 ### Air-gapped target systems
 
-[`install_packages.R`](install_packages.R) takes a **mode** as its first argument.
+[`install_packages.R`](install_packages/install_packages.R) takes a **mode** as its first argument.
 The plain form above is the default `online` mode. For a target with no internet
 access, do the install in two stages — **download** on an internet-connected machine,
 then **offline** install on the air-gapped target:
@@ -141,12 +142,12 @@ then **offline** install on the air-gapped target:
 # 1. On an internet-connected machine: fetch every package in the list PLUS its
 #    hard dependencies (Depends/Imports/LinkingTo, recursive) as source tarballs
 #    into a DIST folder, and write a PACKAGES index so DIST is a local repository.
-Rscript install_packages.R download installed_r_packages.txt
+Rscript install_packages/install_packages.R download installed_r_packages.txt
 
 # 2. Copy the DIST folder to the air-gapped target.
 
 # 3. On the target: install from DIST (a file:// repo) — no network access.
-Rscript install_packages.R offline installed_r_packages.txt
+Rscript install_packages/install_packages.R offline installed_r_packages.txt
 ```
 
 The target must have the same build toolchain R was built with (the packages still

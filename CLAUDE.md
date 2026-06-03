@@ -47,13 +47,13 @@ is **a separate post-install step** (run it by hand after confirming R works); t
 build script prints the exact command at the end.
 Toolchain is pinned in `install_R/config.sh`: `gcc/12.2.0`, `texlive/2022`, `flexiblas/3.3.1`.
 
-**2. Migrate packages from an old R version to a new one — two `Rscript` steps**
-Environment-agnostic (no module/SCC coupling; you provide each R yourself, e.g.
-`module load R/<ver>` on the SCC or any R elsewhere):
-- Under the **old** R: `Rscript list_packages.R` — [list_packages.R](list_packages.R)
+**2. Migrate packages from an old R version to a new one — the [install_packages/](install_packages/) subdirectory**
+Two `Rscript` steps, environment-agnostic (no module/SCC coupling; you provide each R
+yourself, e.g. `module load R/<ver>` on the SCC or any R elsewhere):
+- Under the **old** R: `Rscript install_packages/list_packages.R` — [list_packages.R](install_packages/list_packages.R)
   dumps the installed package names to `installed_r_packages.txt`.
-- Under the **new** R: `Rscript install_packages.R [mode] [list.txt]` —
-  [install_packages.R](install_packages.R) reads the list (default
+- Under the **new** R: `Rscript install_packages/install_packages.R [mode] [list.txt]` —
+  [install_packages.R](install_packages/install_packages.R) reads the list (default
   `installed_r_packages.txt`, or an optional path arg), `setdiff`s against what's
   already installed, and installs the missing packages (logs per-package
   SUCCESS/FAILED to `package_installation_log.txt`). `mode` is `online` (default,
@@ -81,7 +81,7 @@ to the SCC, was removed in favor of these two portable steps.)
   flexiblas module is loaded** (`install_R.sh` checks `module list`); the option string
   itself lives in `config.sh` as `R_FLEXIBLAS_CONFIGURE_OPTS` (single-quoted so its
   `pkg-config` substitution is deferred until build time, then `eval`'d).
-- [install_packages.R](install_packages.R)'s `download` mode resolves the dependency
+- [install_packages.R](install_packages/install_packages.R)'s `download` mode resolves the dependency
   closure against the **target** R version and OS (`TARGET_R_VERSION` / `TARGET_OS`
   env vars, defaulting to the running R and `linux`) via custom `available.packages()`
   filters — not just the machine running the download — so an online box on a newer R
@@ -92,7 +92,7 @@ to the SCC, was removed in favor of these two portable steps.)
   closure is hard deps only (`Depends`/`Imports`/`LinkingTo`); `INCLUDE_SUGGESTS=1`
   also pulls the listed packages' `Suggests` (top-level, plus their hard deps) to
   mirror `install.packages(dependencies = TRUE)` — a much larger closure.
-- [install_packages.R](install_packages.R) decides per-package SUCCESS/FAILED by
+- [install_packages.R](install_packages/install_packages.R) decides per-package SUCCESS/FAILED by
   checking the package is actually present afterwards (`find.package`), **not** by
   `tryCatch` alone — a failed source build emits a *warning* (not an error), so the
   naive catch would log a false SUCCESS. Don't "simplify" that back. It passes

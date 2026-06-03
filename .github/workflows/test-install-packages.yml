@@ -11,14 +11,14 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'install_packages.R'
-      - 'list_packages.R'
+      - 'install_packages/install_packages.R'
+      - 'install_packages/list_packages.R'
       - 'test/install_packages/run_package_test.sh'
       - '.github/workflows/test-install-packages.yml'
   pull_request:
     paths:
-      - 'install_packages.R'
-      - 'list_packages.R'
+      - 'install_packages/install_packages.R'
+      - 'install_packages/list_packages.R'
       - 'test/install_packages/run_package_test.sh'
       - '.github/workflows/test-install-packages.yml'
   workflow_dispatch:

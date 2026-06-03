@@ -18,7 +18,7 @@ set -e
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-SCRIPT="$REPO_ROOT/install_packages.R"
+SCRIPT="$REPO_ROOT/install_packages/install_packages.R"
 
 RSCRIPT="${RSCRIPT:-Rscript}"
 command -v "$RSCRIPT" >/dev/null 2>&1 || { echo "ERROR: '$RSCRIPT' not found on PATH" >&2; exit 1; }
