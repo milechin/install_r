@@ -91,7 +91,22 @@ to the SCC, was removed in favor of these two portable steps.)
   constraint, so there is nothing to filter on that axis. By default the download
   closure is hard deps only (`Depends`/`Imports`/`LinkingTo`); `INCLUDE_SUGGESTS=1`
   also pulls the listed packages' `Suggests` (top-level, plus their hard deps) to
-  mirror `install.packages(dependencies = TRUE)` — a much larger closure.
+  mirror `install.packages(dependencies = TRUE)` — a much larger closure. Set
+  `INCLUDE_SUGGESTS` **the same** for the `download` and the `offline` step: download
+  decides what tarballs land in `DIST`, and offline now restricts its
+  `install.packages(dependencies = ...)` to match (hard deps only by default), so a
+  mismatch would have offline request `Suggests` that were never downloaded.
+- `download` mode is **re-runnable**: it skips any package whose exact-version tarball
+  is already in `DIST` (version-aware — a newer CRAN version still gets fetched), so a
+  re-run only grabs what's missing. `OVERWRITE=1` forces re-fetching everything. It
+  writes `download_log.txt` recording requested→resolved counts, the full
+  skipped/downloaded lists, the **dropped** (not-on-CRAN, e.g. Bioconductor-only)
+  names, and any download failures — the only durable record, since the tarballs +
+  `PACKAGES` index are otherwise all that `download` leaves behind.
+- Bioconductor packages in the list (`Biobase`, `BiocGenerics`, `Biostrings`, … — but
+  not the CRAN-hosted `BiocManager`/`BiocVersion`) are **not** on CRAN, so the
+  CRAN-based migration drops them (logged in `download_log.txt`); install them
+  separately via `BiocManager` / [install_R/install_bioconductor.R](install_R/install_bioconductor.R).
 - [install_packages.R](install_packages/install_packages.R) decides per-package SUCCESS/FAILED by
   checking the package is actually present afterwards (`find.package`), **not** by
   `tryCatch` alone — a failed source build emits a *warning* (not an error), so the

@@ -40,6 +40,9 @@
 #                     Affects BOTH download (what gets fetched into DIST) and offline
 #                     (what install.packages asks for). Set it the SAME for both steps so
 #                     the offline closure matches what was downloaded (default: off).
+#   OVERWRITE         download mode only: re-fetch every resolved tarball even if it is
+#                     already in DIST. Default off -> download is re-runnable and only
+#                     fetches packages whose exact-version tarball is missing from DIST.
 
 # --- helpers ---------------------------------------------------------------
 
@@ -197,6 +200,10 @@ target_filters <- function(target_R, os_type) {
 # --- modes -----------------------------------------------------------------
 
 # download: fetch source tarballs for the list + hard deps into DIST, then index it.
+# Re-runnable: by default skips any package whose exact-version tarball is already in
+# DIST (set OVERWRITE=1 to re-fetch everything). Writes a reviewable download_log.txt
+# recording what was requested, resolved, skipped, downloaded, dropped (not on CRAN -
+# e.g. Bioconductor-only packages), and any download failures.
 download_packages <- function(packages, dist_dir) {
   cran    <- Sys.getenv("CRAN_REPO", "https://cran.r-project.org")
   target_R <- Sys.getenv("TARGET_R_VERSION", as.character(getRversion()))
@@ -204,25 +211,37 @@ download_packages <- function(packages, dist_dir) {
   os_type <- os_type_for(target_os)
 
   include_suggests <- tolower(Sys.getenv("INCLUDE_SUGGESTS", "")) %in% c("1", "true", "yes")
+  overwrite        <- tolower(Sys.getenv("OVERWRITE", "")) %in% c("1", "true", "yes")
 
-  cat("Download repository (CRAN):", cran, "\n")
-  cat("Resolving packages for R", target_R, "(override via TARGET_R_VERSION)\n")
-  cat("Resolving packages for OS", target_os,
-      paste0("[OS_type=", os_type, "]"), "(override via TARGET_OS)\n")
-  cat("Suggests:", if (include_suggests)
+  # Build a record of this run: say() prints to the console AND logs; log_only() writes
+  # to the log alone (used for the full long name lists we don't want to spam stdout).
+  log_lines <- character(0)
+  log_only <- function(line) log_lines[[length(log_lines) + 1L]] <<- line
+  say      <- function(line) { cat(line, "\n"); log_only(line) }
+
+  say(paste("Download started at", format(Sys.time())))
+  say(paste("Download repository (CRAN):", cran))
+  say(paste("Resolving packages for R", target_R, "(override via TARGET_R_VERSION)"))
+  say(paste0("Resolving packages for OS ", target_os, " [OS_type=", os_type,
+             "] (override via TARGET_OS)"))
+  say(paste("Suggests:", if (include_suggests)
         "included for listed packages (INCLUDE_SUGGESTS set)"
-      else
-        "excluded (set INCLUDE_SUGGESTS=1 to include)", "\n")
+      else "excluded (set INCLUDE_SUGGESTS=1 to include)"))
+  say(paste("Re-download existing tarballs:", if (overwrite)
+        "yes (OVERWRITE set)" else "no - skip already-present (set OVERWRITE=1 to force)"))
 
   ap <- available.packages(repos = cran, type = "source",
                            filters = target_filters(target_R, os_type))
 
-  # Drop names not available as source on CRAN (base packages, typos, ...).
+  # Drop names not available as source on CRAN (base packages, Bioconductor-only pkgs,
+  # typos, ...). The full list goes to the log so silently-skipped packages are visible.
   wanted  <- intersect(packages, rownames(ap))
   dropped <- setdiff(packages, wanted)
   if (length(dropped) > 0) {
-    cat("Note: not available as source on CRAN for the target R/OS (skipped):\n  ",
-        paste(dropped, collapse = ", "), "\n")
+    say(paste(length(dropped), "of", length(packages),
+              "requested packages not available as source on CRAN for the target R/OS (skipped)."))
+    log_only(paste("  dropped:", paste(sort(dropped), collapse = ", ")))
+    cat("  (full list of", length(dropped), "skipped packages in download_log.txt)\n")
   }
 
   hard_which <- c("Depends", "Imports", "LinkingTo")
@@ -246,16 +265,53 @@ download_packages <- function(packages, dist_dir) {
   }
 
   closure <- intersect(closure_pkgs, rownames(ap))
-  cat("Resolved", length(wanted), "requested ->", length(closure),
-      "packages with dependencies.\n")
+  say(paste("Resolved", length(wanted), "requested ->", length(closure),
+            "packages with dependencies."))
 
   dir.create(dist_dir, recursive = TRUE, showWarnings = FALSE)
-  cat("Downloading source tarballs into", normalizePath(dist_dir), "...\n")
-  got <- download.packages(closure, destdir = dist_dir, repos = cran, type = "source")
-  cat("Downloaded", nrow(got), "tarballs.\n")
+
+  # Skip packages whose exact-version tarball is already in DIST (unless OVERWRITE).
+  # Version-aware: if CRAN now offers a newer version than the cached tarball the file
+  # names differ, so the new version is fetched rather than treated as already present.
+  expected <- paste0(closure, "_", ap[closure, "Version"], ".tar.gz")
+  present  <- file.exists(file.path(dist_dir, expected))
+  if (overwrite) {
+    to_download <- closure
+  } else {
+    to_download <- closure[!present]
+    skipped     <- closure[present]
+    if (length(skipped) > 0) {
+      say(paste("Already in DIST, skipping:", length(skipped), "package(s)."))
+      log_only(paste("  skipped (cached):", paste(sort(skipped), collapse = ", ")))
+    }
+  }
+
+  got_names <- character(0)
+  if (length(to_download) > 0) {
+    say(paste("Downloading", length(to_download), "source tarball(s) into",
+              normalizePath(dist_dir), "..."))
+    got <- download.packages(to_download, destdir = dist_dir, repos = cran, type = "source")
+    got_names <- got[, 1]
+    say(paste("Downloaded", length(got_names), "tarball(s)."))
+  } else {
+    say("Nothing to download - all resolved packages already present in DIST.")
+  }
+
+  # Anything we meant to fetch but did not get back is a download failure.
+  failed_dl <- setdiff(to_download, got_names)
+  if (length(failed_dl) > 0) {
+    say(paste("WARNING:", length(failed_dl), "package(s) failed to download."))
+    log_only(paste("  download failures:", paste(sort(failed_dl), collapse = ", ")))
+    cat("  (list of failures in download_log.txt)\n")
+  }
 
   tools::write_PACKAGES(dist_dir, type = "source")
-  cat("Wrote PACKAGES index;", dist_dir, "is now a local source repository.\n\n")
+  say(paste0("Wrote PACKAGES index; ", dist_dir, " is now a local source repository."))
+  say(paste("Download finished at", format(Sys.time())))
+
+  log_file <- "download_log.txt"
+  writeLines(log_lines, log_file)
+  cat("\nDownload summary written to", log_file, "\n")
   cat("Next: copy this DIST folder to the air-gapped target, then run:\n")
   cat("  DIST_DIR=", dist_dir, " Rscript ", self, " offline <list_file>\n", sep = "")
 }
