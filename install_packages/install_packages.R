@@ -23,12 +23,23 @@
 #      -> installs from DIST (file:// repo), no network access.
 #
 # Environment knobs:
+#   R_INSTALL_LIB     Library to install into / check against for online & offline modes
+#                     (default: .libPaths()[1], R's usual target - which on the SCC is
+#                     often the personal ~/R library). When set, it becomes the sole
+#                     leading entry of .libPaths(), so installs go there AND the personal
+#                     ~/R library is dropped from "already installed" checks - giving a
+#                     self-contained library for a shared R build. Point it at the new R's
+#                     own library, e.g. .../install/lib64/R/library.
 #   DIST_DIR          DIST folder location (default: ./DIST)
 #   CRAN_REPO         CRAN mirror for download mode (default: https://cran.r-project.org)
 #   TARGET_R_VERSION  R version the downloads must be compatible with, for download
 #                     mode (default: the R running the download)
 #   TARGET_OS         OS the downloads must apply to, for download mode: linux | macos
 #                     | windows (default: linux)
+#   INCLUDE_SUGGESTS  Include Suggests, not just hard deps (Depends/Imports/LinkingTo).
+#                     Affects BOTH download (what gets fetched into DIST) and offline
+#                     (what install.packages asks for). Set it the SAME for both steps so
+#                     the offline closure matches what was downloaded (default: off).
 
 # --- helpers ---------------------------------------------------------------
 
@@ -50,7 +61,8 @@ read_package_list <- function(file_path) {
 # offline, pass contriburl pointing at the flat DIST repo (file://...) so
 # install.packages reads DIST/PACKAGES directly rather than expecting the src/contrib
 # subtree a normal repos= would.
-install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType")) {
+install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType"),
+                               dependencies = TRUE) {
   installed <- rownames(installed.packages())
   missing_packages <- setdiff(packages, installed)
 
@@ -59,7 +71,12 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
     return(invisible(character(0)))
   }
 
-  cat("Installing", length(missing_packages), "missing packages...\n")
+  # install.packages writes to (and find.package/installed.packages above read from)
+  # the first entry of .libPaths(). The dispatch code below sets that from R_INSTALL_LIB
+  # when given, so installs land in the chosen library; pass it explicitly here so the
+  # target is unambiguous at the call site.
+  target_lib <- .libPaths()[1]
+  cat("Installing", length(missing_packages), "missing packages into", target_lib, "\n")
   log_file <- "package_installation_log.txt"
   cat("Installation started at", format(Sys.time()), "\n", file = log_file)
 
@@ -72,11 +89,11 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
 
   install_one <- function(pkg) {
     if (is.null(contriburl)) {
-      install.packages(pkg, repos = repos, type = type, dependencies = TRUE,
-                       keep_outputs = out_dir)
+      install.packages(pkg, lib = target_lib, repos = repos, type = type,
+                       dependencies = dependencies, keep_outputs = out_dir)
     } else {
-      install.packages(pkg, repos = repos, contriburl = contriburl,
-                       type = type, dependencies = TRUE, keep_outputs = out_dir)
+      install.packages(pkg, lib = target_lib, repos = repos, contriburl = contriburl,
+                       type = type, dependencies = dependencies, keep_outputs = out_dir)
     }
   }
 
@@ -84,6 +101,17 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
 
   failed <- character(0)
   for (pkg in missing_packages) {
+    # missing_packages was computed once, up front. Because each install.packages call
+    # below uses dependencies = TRUE, installing an earlier list entry also pulls in its
+    # dependencies - and those dependencies are often later entries in this same list.
+    # install.packages always reinstalls a package named explicitly (it only skips
+    # already-installed *dependencies*), so without this re-check we would needlessly
+    # reinstall every package that an earlier entry already brought in as a dependency.
+    if (is_installed(pkg)) {
+      cat("Already installed (skipping):", pkg, "\n")
+      cat("ALREADY INSTALLED:", pkg, "\n", file = log_file, append = TRUE)
+      next
+    }
     cat("Installing package:", pkg, "\n")
     before <- list.files(out_dir, pattern = "\\.out$")
     # A failed source build makes install.packages emit a *warning* ("had non-zero
@@ -243,7 +271,22 @@ install_offline <- function(packages, dist_dir) {
   # the usual src/contrib path.
   repo <- paste0("file://", normalizePath(dist_dir))
   cat("Installing from local repository:", repo, "\n")
-  install_from_repo(packages, repos = repo, contriburl = repo, type = "source")
+
+  # Match the dependency set to what the 'download' step put in DIST. By default download
+  # fetches hard deps only (Depends/Imports/LinkingTo), so installing with
+  # dependencies = TRUE (which also pulls Suggests) would ask for tarballs that aren't in
+  # DIST and fail. Restrict to hard deps here; only widen to Suggests when INCLUDE_SUGGESTS
+  # is set - the same knob that made download include them. (Set it identically for both
+  # steps so the offline closure matches what was downloaded.)
+  include_suggests <- tolower(Sys.getenv("INCLUDE_SUGGESTS", "")) %in% c("1", "true", "yes")
+  deps <- if (include_suggests) TRUE else c("Depends", "Imports", "LinkingTo")
+  cat("Dependencies:", if (include_suggests)
+        "Depends/Imports/LinkingTo + Suggests (INCLUDE_SUGGESTS set)"
+      else
+        "Depends/Imports/LinkingTo only (set INCLUDE_SUGGESTS=1 if DIST was built with it)",
+      "\n")
+  install_from_repo(packages, repos = repo, contriburl = repo, type = "source",
+                    dependencies = deps)
 }
 
 # online: install from CRAN (the original behavior).
@@ -281,6 +324,27 @@ if (length(args) >= 1 && args[1] %in% MODES) {
 }
 
 dist_dir <- Sys.getenv("DIST_DIR", "DIST")
+
+# R_INSTALL_LIB: the library to install into and check against. Default is .libPaths()[1]
+# (R's usual target - on the SCC that is often the user's personal ~/R library, which is
+# wrong for a shared install). When set, we make it the sole leading entry of .libPaths()
+# so that: (a) install.packages writes there, and (b) "already installed" is judged
+# against THIS R's own library only - the personal ~/R library is dropped from the search,
+# so its stray copies don't mask packages that should be (re)installed into the target,
+# yielding a self-contained library for the shared R build.
+install_lib <- Sys.getenv("R_INSTALL_LIB", "")
+if (nzchar(install_lib)) {
+  dir.create(install_lib, recursive = TRUE, showWarnings = FALSE)
+  if (file.access(install_lib, mode = 2) != 0) {
+    stop("R_INSTALL_LIB '", install_lib, "' is not writable (or could not be created).")
+  }
+  # .libPaths(x) keeps x first and re-appends only R's site/base libraries (NOT
+  # R_LIBS_USER), so the personal ~/R library is excluded from the search.
+  .libPaths(install_lib)
+  cat("Install library (R_INSTALL_LIB):", normalizePath(install_lib), "\n")
+  cat("Library search path:\n  ", paste(.libPaths(), collapse = "\n  "), "\n", sep = "")
+}
+
 packages <- read_package_list(pkg_list_file)
 
 cat("Mode:", mode, "\n")
