@@ -58,8 +58,9 @@ yourself, e.g. `module load R/<ver>` on the SCC or any R elsewhere):
   already installed, and installs the missing packages (logs per-package
   SUCCESS/FAILED to `package_installation_log.txt`). `mode` is `online` (default,
   install from CRAN), `download` (fetch source tarballs + hard deps into a `DIST`
-  folder for transfer to an air-gapped machine), or `offline` (install from a copied
-  `DIST` as a `file://` repo). See the air-gap section in the README.
+  folder for transfer to an air-gapped machine), `offline` (install from a copied
+  `DIST` as a `file://` repo), or `index` (just rebuild the `DIST` `PACKAGES` index —
+  no list needed). See the air-gap section in the README.
 
 (The old `install_packages.sh` wrapper, which hard-coded `module load`s and was tied
 to the SCC, was removed in favor of these two portable steps.)
@@ -96,6 +97,15 @@ to the SCC, was removed in favor of these two portable steps.)
   decides what tarballs land in `DIST`, and offline now restricts its
   `install.packages(dependencies = ...)` to match (hard deps only by default), so a
   mismatch would have offline request `Suggests` that were never downloaded.
+- The `DIST` `PACKAGES` index (what `install.packages` reads to discover the available
+  tarballs) is (re)built by the `index_dist()` helper, which wraps
+  `tools::write_PACKAGES`. It must be rewritten whenever `DIST`'s contents change, so
+  three paths call it: `download` (after fetching), `offline` (**before** installing —
+  so tarballs dropped into `DIST` by hand are picked up automatically), and the
+  standalone `index` mode (rebuild the index alone, e.g. after adding packages to an
+  existing `DIST`). Because `offline` reindexes first, its guard only requires that
+  `DIST` *exists* — it no longer demands a pre-existing `PACKAGES` file (the reindex
+  creates one), so a `DIST` that only ever received tarballs still installs in one step.
 - `download` mode is **re-runnable**: it skips any package whose exact-version tarball
   is already in `DIST` (version-aware — a newer CRAN version still gets fetched), so a
   re-run only grabs what's missing. `OVERWRITE=1` forces re-fetching everything. It

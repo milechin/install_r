@@ -147,17 +147,28 @@ Rscript install_packages/install_packages.R download installed_r_packages.txt
 # 2. Copy the DIST folder to the air-gapped target.
 
 # 3. On the target: install from DIST (a file:// repo) — no network access.
+#    offline rebuilds the PACKAGES index first, so DIST need not arrive pre-indexed.
 Rscript install_packages/install_packages.R offline installed_r_packages.txt
 ```
 
 The target must have the same build toolchain R was built with (the packages still
 compile from source there) plus any required system `-devel` libraries.
 
+**Adding packages to an existing DIST.** To extend a DIST later, drop the extra source
+tarballs into the DIST folder and re-index it. The `offline` step reindexes
+automatically before installing, so new tarballs are picked up on the next install with
+no extra step. To rebuild the index on its own (e.g. to verify DIST is a valid
+repository without installing), use the `index` mode:
+
+```bash
+Rscript install_packages/install_packages.R index    # rebuilds DIST/PACKAGES (honors DIST_DIR)
+```
+
 Knobs (environment variables):
 
 | Variable | Mode | Effect |
 |---|---|---|
-| `DIST_DIR` | download, offline | DIST folder location (default `./DIST`) |
+| `DIST_DIR` | download, offline, index | DIST folder location (default `./DIST`) |
 | `CRAN_REPO` | download | CRAN mirror to download from (default `https://cran.r-project.org`) |
 | `TARGET_R_VERSION` | download | R version the downloads must be compatible with (default: the R running the download). Set this when the online machine's R differs from the target's, so only target-compatible package versions are fetched. |
 | `TARGET_OS` | download | OS the downloads must apply to: `linux` (default), `macos`, or `windows` |

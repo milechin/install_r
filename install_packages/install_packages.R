@@ -5,6 +5,7 @@
 #   Rscript install_packages/install_packages.R online  [list_file]   # install from CRAN (default)
 #   Rscript install_packages/install_packages.R download [list_file]   # download source tarballs -> DIST
 #   Rscript install_packages/install_packages.R offline [list_file]    # install from a local DIST repo
+#   Rscript install_packages/install_packages.R index                  # (re)build the DIST PACKAGES index
 #
 # If the first argument is not one of those mode keywords it is treated as the
 # list file and the mode defaults to "online", so the older form still works:
@@ -20,7 +21,12 @@
 #         writes a PACKAGES index so DIST is a self-contained local repository.
 #   2. Copy the DIST folder to the air-gapped target's DIST folder.
 #   3. On the target:  Rscript install_packages/install_packages.R offline list.txt
-#      -> installs from DIST (file:// repo), no network access.
+#      -> installs from DIST (file:// repo), no network access. offline reindexes DIST
+#         first, so tarballs added to DIST by hand are picked up automatically.
+#
+# To add packages to an existing DIST later, drop the source tarballs in and either run
+# 'offline' (which reindexes before installing) or 'index' to rebuild the PACKAGES index
+# on its own.
 #
 # Environment knobs:
 #   R_INSTALL_LIB     Library to install into / check against for online & offline modes
@@ -199,6 +205,18 @@ target_filters <- function(target_R, os_type) {
 
 # --- modes -----------------------------------------------------------------
 
+# (Re)build the PACKAGES index for DIST so it is a self-contained local source
+# repository. install.packages discovers the available tarballs from this index, so
+# it must be rewritten whenever DIST's contents change - which is why download (after
+# fetching), offline (before installing), and the standalone 'index' mode all call it.
+# Returns the number of packages indexed.
+index_dist <- function(dist_dir) {
+  if (!dir.exists(dist_dir)) {
+    stop("DIST folder '", dist_dir, "' does not exist.")
+  }
+  invisible(tools::write_PACKAGES(dist_dir, type = "source"))
+}
+
 # download: fetch source tarballs for the list + hard deps into DIST, then index it.
 # Re-runnable: by default skips any package whose exact-version tarball is already in
 # DIST (set OVERWRITE=1 to re-fetch everything). Writes a reviewable download_log.txt
@@ -305,8 +323,9 @@ download_packages <- function(packages, dist_dir) {
     cat("  (list of failures in download_log.txt)\n")
   }
 
-  tools::write_PACKAGES(dist_dir, type = "source")
-  say(paste0("Wrote PACKAGES index; ", dist_dir, " is now a local source repository."))
+  n_indexed <- index_dist(dist_dir)
+  say(paste0("Wrote PACKAGES index (", n_indexed, " package(s)); ", dist_dir,
+             " is now a local source repository."))
   say(paste("Download finished at", format(Sys.time())))
 
   log_file <- "download_log.txt"
@@ -318,10 +337,15 @@ download_packages <- function(packages, dist_dir) {
 
 # offline: install from the local DIST repo (file://), no network.
 install_offline <- function(packages, dist_dir) {
-  if (!dir.exists(dist_dir) || !file.exists(file.path(dist_dir, "PACKAGES"))) {
-    stop("DIST folder '", dist_dir, "' is missing or has no PACKAGES index. ",
+  if (!dir.exists(dist_dir)) {
+    stop("DIST folder '", dist_dir, "' does not exist. ",
          "Run the 'download' step first and copy DIST here (or set DIST_DIR).")
   }
+  # Reindex DIST before installing so any tarballs added since the last index (e.g.
+  # dropped in by hand) are picked up. This also rebuilds a missing PACKAGES file - so
+  # a DIST that only ever received tarballs still installs without a separate step.
+  n_indexed <- index_dist(dist_dir)
+  cat("Indexed", n_indexed, "package(s) in", normalizePath(dist_dir), "\n")
   # download.packages writes tarballs (and write_PACKAGES the index) flat in DIST, so
   # point contriburl straight at DIST rather than letting install.packages append
   # the usual src/contrib path.
@@ -363,7 +387,7 @@ install_online <- function(packages) {
 
 # --- dispatch --------------------------------------------------------------
 
-MODES <- c("online", "download", "offline")
+MODES <- c("online", "download", "offline", "index")
 args  <- commandArgs(trailingOnly = TRUE)
 
 # How this script was invoked (e.g. "install_packages/install_packages.R" or a full
@@ -380,6 +404,17 @@ if (length(args) >= 1 && args[1] %in% MODES) {
 }
 
 dist_dir <- Sys.getenv("DIST_DIR", "DIST")
+
+# index: (re)build the PACKAGES index in DIST and exit. Standalone so DIST can be
+# refreshed after adding tarballs by hand, without installing anything. Needs no
+# package list or install library, so handle it before either is touched.
+if (mode == "index") {
+  cat("Mode:", mode, "\n")
+  n_indexed <- index_dist(dist_dir)
+  cat("Wrote PACKAGES index (", n_indexed, " package(s)); ", normalizePath(dist_dir),
+      " is now a local source repository.\n", sep = "")
+  quit(save = "no", status = 0)
+}
 
 # R_INSTALL_LIB: the library to install into and check against. Default is .libPaths()[1]
 # (R's usual target - on the SCC that is often the user's personal ~/R library, which is
