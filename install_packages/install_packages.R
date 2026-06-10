@@ -52,16 +52,30 @@
 
 # --- helpers ---------------------------------------------------------------
 
-# Read the package list (one name per line, with a "Package" header column).
+# Read the package list written by list_packages.R: tab-separated, with a "Package"
+# column and a "Repository" column (CRAN | Bioconductor). Back-compatible with the
+# older single-column ("Package" only) format - those lists, and the test harness's
+# inline lists, carry no Repository column, so every package defaults to CRAN (exactly
+# today's behavior). Returns a data.frame(Package, Repository).
 read_package_list <- function(file_path) {
   if (!file.exists(file_path)) {
     stop("Error: Package list file '", file_path, "' not found.")
   }
   cat("Reading package list from", file_path, "\n")
   pkg_data <- read.table(file_path, header = TRUE, sep = "\t", stringsAsFactors = FALSE)
-  packages <- pkg_data$Package
-  cat("Found", length(packages), "packages in the list.\n")
-  packages
+  if ("Repository" %in% names(pkg_data)) {
+    # Defensive: anything not clearly "Bioconductor" is treated as CRAN.
+    repo <- ifelse(toupper(trimws(pkg_data$Repository)) == "BIOCONDUCTOR",
+                   "Bioconductor", "CRAN")
+  } else {
+    cat("  No 'Repository' column found - treating all packages as CRAN.\n")
+    repo <- rep("CRAN", nrow(pkg_data))
+  }
+  pkg_df <- data.frame(Package = pkg_data$Package, Repository = repo,
+                       stringsAsFactors = FALSE)
+  n_bioc <- sum(pkg_df$Repository == "Bioconductor")
+  cat("Found", nrow(pkg_df), "packages in the list (", n_bioc, "Bioconductor).\n")
+  pkg_df
 }
 
 # Install a set of packages one at a time, logging a per-package SUCCESS/FAILED line
@@ -71,7 +85,7 @@ read_package_list <- function(file_path) {
 # install.packages reads DIST/PACKAGES directly rather than expecting the src/contrib
 # subtree a normal repos= would.
 install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType"),
-                               dependencies = TRUE) {
+                               dependencies = TRUE, log_dir = "build") {
   installed <- rownames(installed.packages())
   missing_packages <- setdiff(packages, installed)
 
@@ -86,15 +100,16 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
   # target is unambiguous at the call site.
   target_lib <- .libPaths()[1]
   cat("Installing", length(missing_packages), "missing packages into", target_lib, "\n")
-  log_file <- "package_installation_log.txt"
+  dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+  log_file <- file.path(log_dir, "package_installation_log.txt")
   cat("Installation started at", format(Sys.time()), "\n", file = log_file)
 
   # keep_outputs saves each build's full output (the R CMD INSTALL log, including
   # compiler errors and "dependency 'X' not available" messages) to <pkg>.out in this
   # directory. We keep these only for packages that fail, so the actual reason is
   # reviewable, without scattering an .out for every one of hundreds of successes.
-  out_dir <- "install_logs"
-  dir.create(out_dir, showWarnings = FALSE)
+  out_dir <- file.path(log_dir, "install_logs")
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
   install_one <- function(pkg) {
     if (is.null(contriburl)) {
@@ -203,6 +218,33 @@ target_filters <- function(target_R, os_type) {
   list(R_version = r_version_filter, OS_type = os_filter, "duplicates")
 }
 
+# Resolve the Bioconductor repository URLs (BioCsoft/BioCann/BioCexp/BioCworkflows +
+# CRAN) for the TARGET R version, using BiocManager. The Bioconductor release is tied
+# to the R version, so the tarballs must come from the release matching the *target* R
+# (the air-gapped/new R), not necessarily the machine running the download. Resolution:
+#   1. explicit bioc_version (TARGET_BIOC_VERSION) always wins;
+#   2. else, if the running R == target R, let BiocManager pick the running R's release;
+#   3. else stop and ask for TARGET_BIOC_VERSION (we cannot guess another R's release).
+# (A future enhancement could auto-map target R -> Bioc via BiocManager:::.version_map().)
+bioc_repositories <- function(target_R, bioc_version = "") {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    stop("BiocManager is required to resolve Bioconductor packages, but is not installed.\n",
+         "  Install it (install.packages(\"BiocManager\")), or remove the Bioconductor\n",
+         "  packages from the list / set their Repository to CRAN.")
+  }
+  same_R <- identical(as.character(target_R), as.character(getRversion()))
+  if (nzchar(bioc_version)) {
+    BiocManager::repositories(version = bioc_version)
+  } else if (same_R) {
+    BiocManager::repositories()                       # running R's Bioconductor release
+  } else {
+    stop("Download R (", as.character(getRversion()), ") differs from TARGET_R_VERSION (",
+         target_R, "), so the matching Bioconductor release is unknown.\n",
+         "  Set TARGET_BIOC_VERSION to the Bioconductor release for the target R ",
+         "(e.g. 3.20).")
+  }
+}
+
 # --- modes -----------------------------------------------------------------
 
 # (Re)build the PACKAGES index for DIST so it is a self-contained local source
@@ -218,15 +260,23 @@ index_dist <- function(dist_dir) {
 }
 
 # download: fetch source tarballs for the list + hard deps into DIST, then index it.
-# Re-runnable: by default skips any package whose exact-version tarball is already in
-# DIST (set OVERWRITE=1 to re-fetch everything). Writes a reviewable download_log.txt
-# recording what was requested, resolved, skipped, downloaded, dropped (not on CRAN -
-# e.g. Bioconductor-only packages), and any download failures.
-download_packages <- function(packages, dist_dir) {
+# Resolves against CRAN, and - when the list contains Bioconductor packages (Repository
+# column) - the matching Bioconductor repositories too, so the cross-repo dependency
+# closure (Bioc deps on CRAN and vice versa) lands in one flat DIST. Re-runnable: by
+# default skips any package whose exact-version tarball is already in DIST (set
+# OVERWRITE=1 to re-fetch everything). Writes a reviewable download_log.txt recording
+# what was requested, resolved, skipped, downloaded, dropped (CRAN vs Bioconductor), and
+# any download failures. Takes pkg_df = data.frame(Package, Repository).
+download_packages <- function(pkg_df, dist_dir, log_dir = "build") {
+  packages <- pkg_df$Package
+  bioc_requested <- pkg_df$Package[pkg_df$Repository == "Bioconductor"]
+  use_bioc       <- length(bioc_requested) > 0
+
   cran    <- Sys.getenv("CRAN_REPO", "https://cran.r-project.org")
   target_R <- Sys.getenv("TARGET_R_VERSION", as.character(getRversion()))
   target_os <- Sys.getenv("TARGET_OS", "linux")
   os_type <- os_type_for(target_os)
+  bioc_version <- Sys.getenv("TARGET_BIOC_VERSION", "")
 
   include_suggests <- tolower(Sys.getenv("INCLUDE_SUGGESTS", "")) %in% c("1", "true", "yes")
   overwrite        <- tolower(Sys.getenv("OVERWRITE", "")) %in% c("1", "true", "yes")
@@ -237,8 +287,24 @@ download_packages <- function(packages, dist_dir) {
   log_only <- function(line) log_lines[[length(log_lines) + 1L]] <<- line
   say      <- function(line) { cat(line, "\n"); log_only(line) }
 
+  # Combined repository set: CRAN always; Bioconductor repos only when the list contains
+  # Bioconductor packages (so all-CRAN / legacy single-column lists never need BiocManager).
+  repos <- c(CRAN = cran)
+  if (use_bioc) {
+    bioc_repos <- bioc_repositories(target_R, bioc_version)
+    # Honor the operator's CRAN_REPO for CRAN; take the BioC* URLs from BiocManager.
+    repos <- c(repos, bioc_repos[setdiff(names(bioc_repos), "CRAN")])
+  }
+
   say(paste("Download started at", format(Sys.time())))
   say(paste("Download repository (CRAN):", cran))
+  if (use_bioc) {
+    say(paste(length(bioc_requested), "Bioconductor package(s) requested."))
+    say(paste("Bioconductor repositories:",
+              paste(repos[setdiff(names(repos), "CRAN")], collapse = ", ")))
+  } else {
+    say("Bioconductor: none requested (CRAN-only resolution).")
+  }
   say(paste("Resolving packages for R", target_R, "(override via TARGET_R_VERSION)"))
   say(paste0("Resolving packages for OS ", target_os, " [OS_type=", os_type,
              "] (override via TARGET_OS)"))
@@ -248,17 +314,29 @@ download_packages <- function(packages, dist_dir) {
   say(paste("Re-download existing tarballs:", if (overwrite)
         "yes (OVERWRITE set)" else "no - skip already-present (set OVERWRITE=1 to force)"))
 
-  ap <- available.packages(repos = cran, type = "source",
+  ap <- available.packages(repos = repos, type = "source",
                            filters = target_filters(target_R, os_type))
 
-  # Drop names not available as source on CRAN (base packages, Bioconductor-only pkgs,
-  # typos, ...). The full list goes to the log so silently-skipped packages are visible.
+  # Drop names not available as source in the resolved repos (base packages, typos,
+  # GitHub/local-only packages, or - for a Bioc name - the wrong Bioc release). The full
+  # list goes to the log, split by declared repository so a genuine Bioconductor miss is
+  # distinguishable from a CRAN one.
   wanted  <- intersect(packages, rownames(ap))
   dropped <- setdiff(packages, wanted)
   if (length(dropped) > 0) {
+    dropped_bioc <- intersect(dropped, bioc_requested)
+    dropped_cran <- setdiff(dropped, dropped_bioc)
     say(paste(length(dropped), "of", length(packages),
-              "requested packages not available as source on CRAN for the target R/OS (skipped)."))
-    log_only(paste("  dropped:", paste(sort(dropped), collapse = ", ")))
+              "requested packages not available as source for the target R/OS (skipped)."))
+    if (length(dropped_cran) > 0)
+      log_only(paste("  dropped (CRAN, not in index):",
+                     paste(sort(dropped_cran), collapse = ", ")))
+    if (length(dropped_bioc) > 0) {
+      log_only(paste("  dropped (Bioconductor, not in index - check TARGET_BIOC_VERSION):",
+                     paste(sort(dropped_bioc), collapse = ", ")))
+      cat("  WARNING:", length(dropped_bioc), "Bioconductor package(s) not found in the",
+          "resolved Bioc release - check TARGET_BIOC_VERSION (see download_log.txt)\n")
+    }
     cat("  (full list of", length(dropped), "skipped packages in download_log.txt)\n")
   }
 
@@ -308,7 +386,7 @@ download_packages <- function(packages, dist_dir) {
   if (length(to_download) > 0) {
     say(paste("Downloading", length(to_download), "source tarball(s) into",
               normalizePath(dist_dir), "..."))
-    got <- download.packages(to_download, destdir = dist_dir, repos = cran, type = "source")
+    got <- download.packages(to_download, destdir = dist_dir, repos = repos, type = "source")
     got_names <- got[, 1]
     say(paste("Downloaded", length(got_names), "tarball(s)."))
   } else {
@@ -328,15 +406,19 @@ download_packages <- function(packages, dist_dir) {
              " is now a local source repository."))
   say(paste("Download finished at", format(Sys.time())))
 
-  log_file <- "download_log.txt"
+  dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+  log_file <- file.path(log_dir, "download_log.txt")
   writeLines(log_lines, log_file)
   cat("\nDownload summary written to", log_file, "\n")
   cat("Next: copy this DIST folder to the air-gapped target, then run:\n")
   cat("  DIST_DIR=", dist_dir, " Rscript ", self, " offline <list_file>\n", sep = "")
 }
 
-# offline: install from the local DIST repo (file://), no network.
-install_offline <- function(packages, dist_dir) {
+# offline: install from the local DIST repo (file://), no network. Bioconductor packages
+# need no special handling here: once their source tarballs are in DIST (put there by the
+# download step) and indexed, they install like any other source package by name. Takes a
+# character vector of package names.
+install_offline <- function(packages, dist_dir, log_dir = "build") {
   if (!dir.exists(dist_dir)) {
     stop("DIST folder '", dist_dir, "' does not exist. ",
          "Run the 'download' step first and copy DIST here (or set DIST_DIR).")
@@ -366,11 +448,12 @@ install_offline <- function(packages, dist_dir) {
         "Depends/Imports/LinkingTo only (set INCLUDE_SUGGESTS=1 if DIST was built with it)",
       "\n")
   install_from_repo(packages, repos = repo, contriburl = repo, type = "source",
-                    dependencies = deps)
+                    dependencies = deps, log_dir = log_dir)
 }
 
-# online: install from CRAN (the original behavior).
-install_online <- function(packages) {
+# online: install from CRAN, plus Bioconductor when the list contains Bioc packages.
+# Takes pkg_df = data.frame(Package, Repository).
+install_online <- function(pkg_df, log_dir = "build") {
   # In a non-interactive Rscript getOption("repos") is the unresolved "@CRAN@"
   # placeholder, which makes install.packages fail with "trying to use CRAN without
   # setting a mirror". Honor a real mirror if one is already configured (e.g. via
@@ -379,10 +462,26 @@ install_online <- function(packages) {
   repos <- getOption("repos")
   cran  <- if (!is.null(repos)) repos[["CRAN"]] else NULL
   if (is.null(cran) || is.na(cran) || !nzchar(cran) || cran == "@CRAN@") {
-    repos <- c(CRAN = Sys.getenv("CRAN_REPO", "https://cran.r-project.org"))
+    cran  <- Sys.getenv("CRAN_REPO", "https://cran.r-project.org")
+    repos <- c(CRAN = cran)
   }
-  cat("Installing from CRAN:", repos[["CRAN"]], "\n")
-  install_from_repo(packages, repos = repos)
+
+  # When the list has Bioconductor packages, add the Bioc repositories for the running
+  # (target) R. BiocManager is itself a CRAN package, so bootstrap it if absent - it may
+  # be in the list but not installed yet when we get here.
+  if (any(pkg_df$Repository == "Bioconductor")) {
+    if (!requireNamespace("BiocManager", quietly = TRUE)) {
+      cat("Bootstrapping BiocManager from CRAN ...\n")
+      install.packages("BiocManager", repos = c(CRAN = cran))
+    }
+    bioc_repos <- BiocManager::repositories()        # running R's Bioconductor release
+    repos <- c(repos, bioc_repos[setdiff(names(bioc_repos), "CRAN")])
+    cat("Installing from CRAN + Bioconductor:\n  ",
+        paste(repos, collapse = "\n  "), "\n", sep = "")
+  } else {
+    cat("Installing from CRAN:", repos[["CRAN"]], "\n")
+  }
+  install_from_repo(pkg_df$Package, repos = repos, log_dir = log_dir)
 }
 
 # --- dispatch --------------------------------------------------------------
@@ -404,6 +503,12 @@ if (length(args) >= 1 && args[1] %in% MODES) {
 }
 
 dist_dir <- Sys.getenv("DIST_DIR", "DIST")
+
+# LOG_DIR: where the log/output artifacts go (package_installation_log.txt, install_logs/,
+# failed_packages.txt, download_log.txt). Default "build" - relative to CWD, so running the
+# migration from a version directory lands logs in that R's build/; set LOG_DIR to override
+# (e.g. an absolute build path). DIST is unrelated and stays under DIST_DIR.
+log_dir <- Sys.getenv("LOG_DIR", "build")
 
 # index: (re)build the PACKAGES index in DIST and exit. Standalone so DIST can be
 # refreshed after adding tarballs by hand, without installing anything. Needs no
@@ -436,13 +541,13 @@ if (nzchar(install_lib)) {
   cat("Library search path:\n  ", paste(.libPaths(), collapse = "\n  "), "\n", sep = "")
 }
 
-packages <- read_package_list(pkg_list_file)
+pkg_df <- read_package_list(pkg_list_file)
 
 cat("Mode:", mode, "\n")
 failed <- switch(mode,
-       download = { download_packages(packages, dist_dir); character(0) },
-       offline  = install_offline(packages, dist_dir),
-       online   = install_online(packages))
+       download = { download_packages(pkg_df, dist_dir, log_dir); character(0) },
+       offline  = install_offline(pkg_df$Package, dist_dir, log_dir),
+       online   = install_online(pkg_df, log_dir))
 
 # Report final state (offline/online only; download installs nothing).
 if (mode != "download") {
@@ -450,12 +555,17 @@ if (mode != "download") {
   cat("Total packages installed:", length(installed_after), "\n")
 
   if (length(failed) > 0) {
-    # Write the failures as a package list (same format the script reads) so they can
-    # be fed straight back in, and print a ready-to-run retry command for this mode.
-    failed_file <- "failed_packages.txt"
-    writeLines(c("Package", failed), failed_file)
-    cat("\n", length(failed), " package(s) FAILED - summary in package_installation_log.txt,",
-        " full build output per failure in install_logs/; names written to ", failed_file, ".\n", sep = "")
+    # Write the failures as a package list in the SAME 2-column format the script reads
+    # (Package<TAB>Repository), so they can be fed straight back in - keeping the
+    # Repository tag means a failed Bioconductor package retried via this file is still
+    # resolved against Bioconductor rather than silently dropped as CRAN.
+    failed_file <- file.path(log_dir, "failed_packages.txt")
+    failed_df <- pkg_df[match(failed, pkg_df$Package), c("Package", "Repository")]
+    write.table(failed_df, failed_file, sep = "\t", row.names = FALSE, quote = FALSE)
+    cat("\n", length(failed), " package(s) FAILED - summary in ",
+        file.path(log_dir, "package_installation_log.txt"), ",",
+        " full build output per failure in ", file.path(log_dir, "install_logs"),
+        "/; names written to ", failed_file, ".\n", sep = "")
     prefix <- if (mode == "offline") paste0("DIST_DIR=", shQuote(dist_dir), " ") else ""
     cat("To retry only the failed packages, rerun:\n")
     cat("  ", prefix, "Rscript ", self, " ", mode, " ", failed_file, "\n", sep = "")

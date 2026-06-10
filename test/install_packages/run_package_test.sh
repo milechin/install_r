@@ -112,21 +112,35 @@ assert_installed "$VLIB" rmsfact
 pass "online fell back to a CRAN mirror under the @CRAN@ placeholder"
 
 # ---------------------------------------------------------------------------
-echo "=== 8. failures are logged and a retry list + command are produced ==="
+echo "=== 8. failures are logged and a retry list + command are produced (LOG_DIR honored) ==="
 # Offline-install a package that is not in DIST: it must be reported FAILED (not a
 # false SUCCESS), recorded in the log, and written to failed_packages.txt with a
-# printed retry command.
+# printed retry command. LOG_DIR is set explicitly here, which also verifies the
+# log/output artifacts honor it (they default to ./build otherwise).
 FLIB="$SANDBOX/lib_fail"
 mkdir -p "$FLIB"
+FLOGS="$SANDBOX/faillogs"
 BOGUS="this_package_does_not_exist_zzz"
 printf 'Package\n%s\n' "$BOGUS" > faillist.txt
-out=$(R_LIBS="$FLIB" DIST_DIR="$DIST" "$RSCRIPT" "$SCRIPT" offline faillist.txt 2>&1)
+out=$(R_LIBS="$FLIB" DIST_DIR="$DIST" LOG_DIR="$FLOGS" "$RSCRIPT" "$SCRIPT" offline faillist.txt 2>&1)
 echo "$out" | grep -q "FAILED: $BOGUS" || fail "failure not reported on console"
 echo "$out" | grep -q "To retry only the failed packages" || fail "retry command not printed"
-[ -f "$SANDBOX/failed_packages.txt" ] || fail "failed_packages.txt not written"
-grep -q "$BOGUS" "$SANDBOX/failed_packages.txt" || fail "failed package missing from failed_packages.txt"
-grep -q "FAILED: $BOGUS" "$SANDBOX/package_installation_log.txt" || fail "failure not recorded in log file"
-pass "failure logged + failed_packages.txt + retry command produced"
+[ -f "$FLOGS/failed_packages.txt" ] || fail "failed_packages.txt not written under LOG_DIR"
+grep -q "$BOGUS" "$FLOGS/failed_packages.txt" || fail "failed package missing from failed_packages.txt"
+grep -q "FAILED: $BOGUS" "$FLOGS/package_installation_log.txt" || fail "failure not recorded in log file"
+pass "failure logged + failed_packages.txt + retry command produced under LOG_DIR"
+
+# ---------------------------------------------------------------------------
+echo "=== 9. 2-column list (Package + Repository) is read; CRAN rows install ==="
+# The list format produced by list_packages.R carries a Repository column. A CRAN-only
+# 2-column list must parse and install without needing BiocManager.
+T9LIB="$SANDBOX/lib_2col"
+mkdir -p "$T9LIB"
+printf 'Package\tRepository\nfortunes\tCRAN\n' > twocol.txt
+out=$(R_LIBS="$T9LIB" "$RSCRIPT" "$SCRIPT" online twocol.txt 2>&1)
+echo "$out"
+assert_installed "$T9LIB" fortunes
+pass "2-column Package+Repository list parsed and installed"
 
 echo
 echo "=== ALL PACKAGE TESTS PASSED ==="

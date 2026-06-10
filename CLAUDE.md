@@ -17,8 +17,7 @@ creates before running the build.
 **1. Build a new R version from source — the [install_R/](install_R/) subdirectory**
 This workflow (run infrequently) lives in `install_R/`:
 [install_R/install_R.sh](install_R/install_R.sh),
-[install_R/config.sh](install_R/config.sh),
-[install_R/install_bioconductor.R](install_R/install_bioconductor.R).
+[install_R/config.sh](install_R/config.sh).
 Edit `config.sh` (at minimum `VERSION`), then:
 ```bash
 cd install_R
@@ -42,25 +41,29 @@ Java (a Java upgrade re-points the symlink and R follows, without breaking rJava
 It is **location-independent** — all paths derive from the config vars, so it no
 longer matters which directory you launch it from.
 
-Installing BiocManager + tidyverse via [install_R/install_bioconductor.R](install_R/install_bioconductor.R)
-is **a separate post-install step** (run it by hand after confirming R works); the
-build script prints the exact command at the end.
+Populating the freshly built R with packages (CRAN, Bioconductor, tidyverse) is **a
+separate post-install step** — the package-migration workflow below, run by hand after
+confirming R works; the build script prints the exact commands at the end. (There is no
+longer a standalone Bioconductor bootstrap: the migration carries Bioconductor packages.)
 Toolchain is pinned in `install_R/config.sh`: `gcc/12.2.0`, `texlive/2022`, `flexiblas/3.3.1`.
 
 **2. Migrate packages from an old R version to a new one — the [install_packages/](install_packages/) subdirectory**
 Two `Rscript` steps, environment-agnostic (no module/SCC coupling; you provide each R
 yourself, e.g. `module load R/<ver>` on the SCC or any R elsewhere):
 - Under the **old** R: `Rscript install_packages/list_packages.R` — [list_packages.R](install_packages/list_packages.R)
-  dumps the installed package names to `installed_r_packages.txt`.
+  dumps the installed packages to `installed_r_packages.txt` as a tab-separated
+  `Package` + `Repository` table, tagging each `CRAN` or `Bioconductor` (detected
+  offline from the `biocViews` DESCRIPTION field).
 - Under the **new** R: `Rscript install_packages/install_packages.R [mode] [list.txt]` —
   [install_packages.R](install_packages/install_packages.R) reads the list (default
   `installed_r_packages.txt`, or an optional path arg), `setdiff`s against what's
   already installed, and installs the missing packages (logs per-package
-  SUCCESS/FAILED to `package_installation_log.txt`). `mode` is `online` (default,
-  install from CRAN), `download` (fetch source tarballs + hard deps into a `DIST`
-  folder for transfer to an air-gapped machine), `offline` (install from a copied
-  `DIST` as a `file://` repo), or `index` (just rebuild the `DIST` `PACKAGES` index —
-  no list needed). See the air-gap section in the README.
+  SUCCESS/FAILED to `build/package_installation_log.txt`). `mode` is `online` (default,
+  install from CRAN — and Bioconductor when the list has Bioc packages), `download`
+  (fetch source tarballs + hard deps into a `DIST` folder for transfer to an air-gapped
+  machine), `offline` (install from a copied `DIST` as a `file://` repo), or `index`
+  (just rebuild the `DIST` `PACKAGES` index — no list needed). See the air-gap section
+  in the README.
 
 (The old `install_packages.sh` wrapper, which hard-coded `module load`s and was tied
 to the SCC, was removed in favor of these two portable steps.)
@@ -109,14 +112,35 @@ to the SCC, was removed in favor of these two portable steps.)
 - `download` mode is **re-runnable**: it skips any package whose exact-version tarball
   is already in `DIST` (version-aware — a newer CRAN version still gets fetched), so a
   re-run only grabs what's missing. `OVERWRITE=1` forces re-fetching everything. It
-  writes `download_log.txt` recording requested→resolved counts, the full
-  skipped/downloaded lists, the **dropped** (not-on-CRAN, e.g. Bioconductor-only)
-  names, and any download failures — the only durable record, since the tarballs +
-  `PACKAGES` index are otherwise all that `download` leaves behind.
-- Bioconductor packages in the list (`Biobase`, `BiocGenerics`, `Biostrings`, … — but
-  not the CRAN-hosted `BiocManager`/`BiocVersion`) are **not** on CRAN, so the
-  CRAN-based migration drops them (logged in `download_log.txt`); install them
-  separately via `BiocManager` / [install_R/install_bioconductor.R](install_R/install_bioconductor.R).
+  writes `download_log.txt` (under `LOG_DIR`) recording requested→resolved counts, the
+  full skipped/downloaded lists, the **dropped** names (split into CRAN vs Bioconductor
+  — a dropped Bioc name signals a wrong `TARGET_BIOC_VERSION`, not "Bioc unsupported"),
+  and any download failures — the only durable record, since the tarballs + `PACKAGES`
+  index are otherwise all that `download` leaves behind.
+- **Bioconductor is carried by the migration itself.** `list_packages.R` tags each
+  package `CRAN` or `Bioconductor` in the list's `Repository` column, detected
+  **offline** from the installed package's `biocViews` DESCRIPTION field (Bioc packages
+  have it; CRAN packages don't) — so no network/BiocManager is needed where the *list*
+  is produced. `install_packages.R` reads that column (`read_package_list` returns a
+  `Package`+`Repository` data.frame; a legacy single-column list defaults all to CRAN,
+  preserving old behavior) and, when any package is tagged Bioconductor, adds the
+  Bioconductor repos to the combined `available.packages()`/`download.packages()`
+  (download) or `install.packages` `repos` (online) via the `bioc_repositories()`
+  helper. `BiocManager` is required **only when the list actually contains Bioconductor
+  packages** — `download` fails clearly if it's absent; `online` bootstraps it from
+  CRAN (it is itself a CRAN package). The Bioc *release* must match the **target** R:
+  defaults to the running R's release, overridable with `TARGET_BIOC_VERSION` (required
+  when the download machine's R differs from the target R). Versions are not pinned —
+  each named package installs at its current version (intended). `offline` needs no
+  Bioc-specific logic: once the Bioc source tarballs are in `DIST` and indexed they
+  install by name like any other source package. `biocViews` won't flag GitHub/local
+  packages, so those read as CRAN and are dropped if not on CRAN (as before).
+- `LOG_DIR` (default `build`) is where all log/output artifacts go —
+  `package_installation_log.txt`, `install_logs/`, `failed_packages.txt`,
+  `download_log.txt` — created if missing. `failed_packages.txt` is written in the same
+  2-column `Package`+`Repository` format the scripts read, so a failed **Bioconductor**
+  package retried via that file stays tagged Bioconductor instead of silently reverting
+  to CRAN. `DIST_DIR` is unrelated (the package repo) and independent of `LOG_DIR`.
 - [install_packages.R](install_packages/install_packages.R) decides per-package SUCCESS/FAILED by
   checking the package is actually present afterwards (`find.package`), **not** by
   `tryCatch` alone — a failed source build emits a *warning* (not an error), so the
