@@ -75,6 +75,6 @@ jobs:
         with:
           name: r-build-logs-${{ strategy.job-index }}
           path: |
-            test/install_R/test_pkg/r/*/build/*.out
-            test/install_R/test_pkg/r/*/build/*.output
+            test/install_R/test_pkg/r/*/build/r_install/*.out
+            test/install_R/test_pkg/r/*/build/r_install/*.output
           if-no-files-found: ignore

@@ -66,8 +66,9 @@ local tarball), configures, builds, `make install`s, copies the gcc runtime
 libraries into R's `lib`, and runs `R CMD javareconf` against `/usr/java/default`.
 `make check` is run but is non-fatal (failures are logged, not aborting).
 
-Logs land in `$R_PKG_BASE/$VERSION/build/` (`config.out`, `make.output`,
-`make.install.output`, `make.check.output`).
+The build runs in `$R_PKG_BASE/$VERSION/build/r_install/`, where its step logs land too
+(`config.out`, `make.output`, `make.install.output`, `make.check.output`). (The
+package-migration step keeps its logs separate, in `build/package_install/`.)
 
 ### 5. Migrate the package set (separate step)
 
@@ -114,7 +115,7 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    list contains Bioconductor packages) from the Bioconductor repositories for the
    running R as well, bootstrapping BiocManager from CRAN if it is not already present.
    Versions are not pinned: each named package is installed at its current version.
-   Per-package results are logged to `build/package_installation_log.txt` (`SUCCESS:` /
+   Per-package results are logged to `build/package_install/package_installation_log.txt` (`SUCCESS:` /
    `FAILED:` with the error text per package). Success is determined by checking the
    package is actually present afterwards — a source build that fails only emits a
    warning, so a naive check would miss it.
@@ -122,11 +123,11 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    For each **failed** package the full build output (the `R CMD INSTALL` log, with
    the compiler error or the missing-dependency message — so you can see *why* it
    failed, including when the real culprit is a dependency) is saved to
-   `build/install_logs/<pkg>.out`, and the summary log line points at it. Logs for
+   `build/package_install/install_logs/<pkg>.out`, and the summary log line points at it. Logs for
    successful builds are not kept.
 
    If any packages fail, their names (with the `Repository` tag) are also written to
-   `build/failed_packages.txt` (same format as the input list) and a ready-to-run retry
+   `build/package_install/failed_packages.txt` (same format as the input list) and a ready-to-run retry
    command is printed. You can rerun that to attempt only the failures — and since the
    script skips already-installed packages, simply re-running with the original list
    works too.
@@ -135,8 +136,8 @@ Note: packages compile from source on the new R, so the build toolchain (and any
 system `-devel` libraries a given package needs) must be available on the machine —
 Bioconductor packages in particular often need system `-devel` libraries.
 
-All log/output files default to a `build/` directory (created if missing); set
-`LOG_DIR` to put them elsewhere.
+All log/output files default to a `build/package_install/` directory (created if
+missing); set `LOG_DIR` to put them elsewhere.
 
 ### Air-gapped target systems
 
@@ -181,7 +182,7 @@ Knobs (environment variables):
 | Variable | Mode | Effect |
 |---|---|---|
 | `DIST_DIR` | download, offline, index | DIST folder location (default `./DIST`) |
-| `LOG_DIR` | online, download, offline | Directory for log/output files — `package_installation_log.txt`, `install_logs/`, `failed_packages.txt`, `download_log.txt` (default `build`, created if missing) |
+| `LOG_DIR` | online, download, offline | Directory for log/output files — `package_installation_log.txt`, `install_logs/`, `failed_packages.txt`, `download_log.txt` (default `build/package_install`, created if missing) |
 | `CRAN_REPO` | download, online | CRAN mirror to use (default `https://cran.r-project.org`) |
 | `TARGET_R_VERSION` | download | R version the downloads must be compatible with (default: the R running the download). Set this when the online machine's R differs from the target's, so only target-compatible package versions are fetched. |
 | `TARGET_BIOC_VERSION` | download | Bioconductor release the downloads must target, e.g. `3.20` (default: the running R's Bioconductor release, used only when `TARGET_R_VERSION` equals the download machine's R). **Required** when downloading Bioconductor packages for a target R that differs from the download machine's R. |

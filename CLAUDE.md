@@ -58,7 +58,7 @@ yourself, e.g. `module load R/<ver>` on the SCC or any R elsewhere):
   [install_packages.R](install_packages/install_packages.R) reads the list (default
   `installed_r_packages.txt`, or an optional path arg), `setdiff`s against what's
   already installed, and installs the missing packages (logs per-package
-  SUCCESS/FAILED to `build/package_installation_log.txt`). `mode` is `online` (default,
+  SUCCESS/FAILED to `build/package_install/package_installation_log.txt`). `mode` is `online` (default,
   install from CRAN — and Bioconductor when the list has Bioc packages), `download`
   (fetch source tarballs + hard deps into a `DIST` folder for transfer to an air-gapped
   machine), `offline` (install from a copied `DIST` as a `file://` repo), or `index`
@@ -135,9 +135,11 @@ to the SCC, was removed in favor of these two portable steps.)
   Bioc-specific logic: once the Bioc source tarballs are in `DIST` and indexed they
   install by name like any other source package. `biocViews` won't flag GitHub/local
   packages, so those read as CRAN and are dropped if not on CRAN (as before).
-- `LOG_DIR` (default `build`) is where all log/output artifacts go —
+- `LOG_DIR` (default `build/package_install`) is where all log/output artifacts go —
   `package_installation_log.txt`, `install_logs/`, `failed_packages.txt`,
-  `download_log.txt` — created if missing. `failed_packages.txt` is written in the same
+  `download_log.txt` — created if missing. It is a sibling of `build/r_install/` (where
+  `install_R.sh` builds R and writes its `config.out`/`make.*.output`), so the build dir
+  holds one subfolder per action rather than both actions' logs intermixed. `failed_packages.txt` is written in the same
   2-column `Package`+`Repository` format the scripts read, so a failed **Bioconductor**
   package retried via that file stays tagged Bioconductor instead of silently reverting
   to CRAN. `DIST_DIR` is unrelated (the package repo) and independent of `LOG_DIR`.

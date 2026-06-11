@@ -85,7 +85,7 @@ read_package_list <- function(file_path) {
 # install.packages reads DIST/PACKAGES directly rather than expecting the src/contrib
 # subtree a normal repos= would.
 install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType"),
-                               dependencies = TRUE, log_dir = "build") {
+                               dependencies = TRUE, log_dir = "build/package_install") {
   installed <- rownames(installed.packages())
   missing_packages <- setdiff(packages, installed)
 
@@ -267,7 +267,7 @@ index_dist <- function(dist_dir) {
 # OVERWRITE=1 to re-fetch everything). Writes a reviewable download_log.txt recording
 # what was requested, resolved, skipped, downloaded, dropped (CRAN vs Bioconductor), and
 # any download failures. Takes pkg_df = data.frame(Package, Repository).
-download_packages <- function(pkg_df, dist_dir, log_dir = "build") {
+download_packages <- function(pkg_df, dist_dir, log_dir = "build/package_install") {
   packages <- pkg_df$Package
   bioc_requested <- pkg_df$Package[pkg_df$Repository == "Bioconductor"]
   use_bioc       <- length(bioc_requested) > 0
@@ -418,7 +418,7 @@ download_packages <- function(pkg_df, dist_dir, log_dir = "build") {
 # need no special handling here: once their source tarballs are in DIST (put there by the
 # download step) and indexed, they install like any other source package by name. Takes a
 # character vector of package names.
-install_offline <- function(packages, dist_dir, log_dir = "build") {
+install_offline <- function(packages, dist_dir, log_dir = "build/package_install") {
   if (!dir.exists(dist_dir)) {
     stop("DIST folder '", dist_dir, "' does not exist. ",
          "Run the 'download' step first and copy DIST here (or set DIST_DIR).")
@@ -453,7 +453,7 @@ install_offline <- function(packages, dist_dir, log_dir = "build") {
 
 # online: install from CRAN, plus Bioconductor when the list contains Bioc packages.
 # Takes pkg_df = data.frame(Package, Repository).
-install_online <- function(pkg_df, log_dir = "build") {
+install_online <- function(pkg_df, log_dir = "build/package_install") {
   # In a non-interactive Rscript getOption("repos") is the unresolved "@CRAN@"
   # placeholder, which makes install.packages fail with "trying to use CRAN without
   # setting a mirror". Honor a real mirror if one is already configured (e.g. via
@@ -505,10 +505,11 @@ if (length(args) >= 1 && args[1] %in% MODES) {
 dist_dir <- Sys.getenv("DIST_DIR", "DIST")
 
 # LOG_DIR: where the log/output artifacts go (package_installation_log.txt, install_logs/,
-# failed_packages.txt, download_log.txt). Default "build" - relative to CWD, so running the
-# migration from a version directory lands logs in that R's build/; set LOG_DIR to override
-# (e.g. an absolute build path). DIST is unrelated and stays under DIST_DIR.
-log_dir <- Sys.getenv("LOG_DIR", "build")
+# failed_packages.txt, download_log.txt). Default "build/package_install" - relative to CWD,
+# so running the migration from a version directory lands logs in that R's
+# build/package_install/ (kept separate from the R-build logs in build/r_install/); set
+# LOG_DIR to override. DIST is unrelated and stays under DIST_DIR.
+log_dir <- Sys.getenv("LOG_DIR", "build/package_install")
 
 # index: (re)build the PACKAGES index in DIST and exit. Standalone so DIST can be
 # refreshed after adding tarballs by hand, without installing anything. Needs no
