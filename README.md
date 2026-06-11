@@ -167,6 +167,12 @@ compile from source there) plus any required system `-devel` libraries. If the
 download machine's R differs from the target R, set `TARGET_R_VERSION` (and, when the
 list has Bioconductor packages, `TARGET_BIOC_VERSION`) so the right release is fetched.
 
+Any list entries that `download` couldn't fetch (archived/removed from CRAN,
+GitHub/local-only, or a Bioconductor-release mismatch — recorded under `dropped` in
+`download_log.txt`) won't be in DIST. `offline` detects this and **skips** them with a
+`SKIPPED (not in DIST)` notice rather than attempting and failing them, so they don't
+clutter `failed_packages.txt`; the remaining available packages still install.
+
 **Adding packages to an existing DIST.** To extend a DIST later, drop the extra source
 tarballs into the DIST folder and re-index it. The `offline` step reindexes
 automatically before installing, so new tarballs are picked up on the next install with

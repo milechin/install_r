@@ -464,6 +464,24 @@ install_offline <- function(packages, dist_dir, log_dir = "build/package_install
   repo <- paste0("file://", normalizePath(dist_dir))
   cat("Installing from local repository:", repo, "\n")
 
+  # Skip requested packages that aren't in DIST. The 'download' step drops packages it
+  # can't fetch (archived/removed from CRAN, GitHub/local-only, or a Bioc-release miss)
+  # and only records them in download_log.txt - so without this filter, offline would
+  # attempt each one, fail to find it in the local repo, and log it as FAILED, cluttering
+  # failed_packages.txt with packages that were never installable offline. Filter them
+  # out against the DIST index and report them as skipped instead. filters=character(0)
+  # so a package that IS in DIST isn't hidden by an R-version/OS filter (a genuine
+  # version mismatch surfaces as a clear install failure, not a phantom "missing").
+  avail <- rownames(available.packages(contriburl = repo, type = "source",
+                                       filters = character(0)))
+  not_in_dist <- setdiff(packages, avail)
+  in_dist     <- intersect(packages, avail)
+  if (length(not_in_dist) > 0) {
+    cat("Skipping ", length(not_in_dist),
+        " requested package(s) not present in DIST (unavailable at download time):\n  ",
+        paste(sort(not_in_dist), collapse = ", "), "\n", sep = "")
+  }
+
   # Match the dependency set to what the 'download' step put in DIST. By default download
   # fetches hard deps only (Depends/Imports/LinkingTo), so installing with
   # dependencies = TRUE (which also pulls Suggests) would ask for tarballs that aren't in
@@ -477,8 +495,20 @@ install_offline <- function(packages, dist_dir, log_dir = "build/package_install
       else
         "Depends/Imports/LinkingTo only (set INCLUDE_SUGGESTS=1 if DIST was built with it)",
       "\n")
-  install_from_repo(packages, repos = repo, contriburl = repo, type = "source",
-                    dependencies = deps, log_dir = log_dir)
+  failed <- install_from_repo(in_dist, repos = repo, contriburl = repo, type = "source",
+                              dependencies = deps, log_dir = log_dir)
+
+  # Record the skipped packages in the run log too, as SKIPPED (distinct from build
+  # FAILUREs), so the log is a complete account of what happened to every requested name.
+  if (length(not_in_dist) > 0) {
+    dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
+    log_file <- file.path(log_dir, "package_installation_log.txt")
+    cat("\n", length(not_in_dist), " package(s) SKIPPED (not present in DIST):\n",
+        sep = "", file = log_file, append = TRUE)
+    for (pkg in sort(not_in_dist))
+      cat("SKIPPED (not in DIST):", pkg, "\n", file = log_file, append = TRUE)
+  }
+  failed
 }
 
 # online: install from CRAN, plus Bioconductor when the list contains Bioc packages.

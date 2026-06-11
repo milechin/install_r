@@ -113,16 +113,17 @@ pass "online fell back to a CRAN mirror under the @CRAN@ placeholder"
 
 # ---------------------------------------------------------------------------
 echo "=== 8. failures are logged and a retry list + command are produced (LOG_DIR honored) ==="
-# Offline-install a package that is not in DIST: it must be reported FAILED (not a
-# false SUCCESS), recorded in the log, and written to failed_packages.txt with a
-# printed retry command. LOG_DIR is set explicitly here, which also verifies the
-# log/output artifacts honor it (they default to ./build otherwise).
+# Install a package that is not available (a bogus name) via ONLINE mode - online is not
+# pre-filtered the way offline skips names missing from DIST, so a bogus name genuinely
+# fails to resolve. It must be reported FAILED (not a false SUCCESS), recorded in the log,
+# and written to failed_packages.txt with a printed retry command. LOG_DIR is set
+# explicitly here, which also verifies the log/output artifacts honor it.
 FLIB="$SANDBOX/lib_fail"
 mkdir -p "$FLIB"
 FLOGS="$SANDBOX/faillogs"
 BOGUS="this_package_does_not_exist_zzz"
 printf 'Package\n%s\n' "$BOGUS" > faillist.txt
-out=$(R_LIBS="$FLIB" DIST_DIR="$DIST" LOG_DIR="$FLOGS" "$RSCRIPT" "$SCRIPT" offline faillist.txt 2>&1)
+out=$(R_LIBS="$FLIB" LOG_DIR="$FLOGS" "$RSCRIPT" "$SCRIPT" online faillist.txt 2>&1)
 echo "$out" | grep -q "FAILED: $BOGUS" || fail "failure not reported on console"
 echo "$out" | grep -q "To retry only the failed packages" || fail "retry command not printed"
 [ -f "$FLOGS/failed_packages.txt" ] || fail "failed_packages.txt not written under LOG_DIR"
@@ -173,6 +174,25 @@ else
     assert_installed "$BIOCLIB" generics   # cross-repo CRAN dep, pulled from the local repo
     pass "Bioconductor download -> offline install round-trip"
 fi
+
+# ---------------------------------------------------------------------------
+echo "=== 11. offline skips requested packages not present in DIST (not FAILED) ==="
+# A list mixing an available package (lgr, in $DIST from test 1) with one absent from DIST:
+# the absent one must be reported SKIPPED and NOT counted as a failure, while the available
+# one still installs. This is the air-gap case where download dropped an unavailable name.
+SKIPLIB="$SANDBOX/lib_skip"
+mkdir -p "$SKIPLIB"
+SKIPLOGS="$SANDBOX/skiplogs"
+printf 'Package\nlgr\n%s\n' "$BOGUS" > skiplist.txt
+out=$(R_LIBS="$SKIPLIB" DIST_DIR="$DIST" LOG_DIR="$SKIPLOGS" "$RSCRIPT" "$SCRIPT" offline skiplist.txt 2>&1)
+echo "$out" | grep -qE "Skipping 1 .*not present in DIST" || fail "absent package not reported as skipped"
+echo "$out" | grep -q "$BOGUS" || fail "skipped package name not shown"
+if [ -f "$SKIPLOGS/failed_packages.txt" ] && grep -q "$BOGUS" "$SKIPLOGS/failed_packages.txt"; then
+    fail "skipped package wrongly recorded as a failure"
+fi
+grep -q "SKIPPED (not in DIST): $BOGUS" "$SKIPLOGS/package_installation_log.txt" || fail "skip not recorded in log"
+assert_installed "$SKIPLIB" lgr   # the available package still installs from DIST
+pass "offline skipped the absent package and installed the available one"
 
 echo
 echo "=== ALL PACKAGE TESTS PASSED ==="

@@ -115,6 +115,14 @@ to the SCC, was removed in favor of these two portable steps.)
   skipped with `SKIP_REINDEX=1` when `DIST` is unchanged since `download` (which already
   wrote the index) — that path then requires a pre-existing `PACKAGES` file, since it
   won't be creating one.
+- `offline` **pre-filters the requested list against the `DIST` index** (via
+  `available.packages(contriburl = file://DIST, filters = character(0))` — no R-version/OS
+  filter, so it's pure "is it in DIST") and **skips** names not present, logging them as
+  `SKIPPED (not in DIST)` rather than passing them to `install.packages` to attempt and
+  fail. This is what keeps `download`'s **dropped** packages (archived/removed from CRAN,
+  GitHub-only, Bioc-release miss) out of `failed_packages.txt` on the air-gap target —
+  they were never installable offline, so they're skipped, not failed. Genuine build
+  failures among the packages that *are* in `DIST` still go to `failed_packages.txt`.
 - `download` mode is **re-runnable**: it skips any package whose exact-version tarball
   is already in `DIST` (version-aware — a newer CRAN version still gets fetched), so a
   re-run only grabs what's missing. `OVERWRITE=1` forces re-fetching everything. It
