@@ -142,5 +142,37 @@ echo "$out"
 assert_installed "$T9LIB" fortunes
 pass "2-column Package+Repository list parsed and installed"
 
+# ---------------------------------------------------------------------------
+echo "=== 10. Bioconductor round-trip: download a Bioc package + dep, install offline ==="
+# Exercises the combined CRAN+Bioconductor resolution. BiocGenerics is an R-only Bioc
+# package (fast, no compilation) whose only non-base dependency, generics, is on CRAN -
+# so a successful round-trip proves Bioc packages AND their cross-repo CRAN deps land in
+# one DIST and install offline. Requires BiocManager (installed from CRAN if absent) and
+# network to bioconductor.org; skips gracefully if BiocManager cannot be obtained.
+have_bioc() { "$RSCRIPT" -e 'quit(status = if (requireNamespace("BiocManager", quietly = TRUE)) 0 else 1)' >/dev/null 2>&1; }
+if ! have_bioc; then
+    echo "  BiocManager not installed - installing from CRAN for the test ..."
+    "$RSCRIPT" -e 'install.packages("BiocManager", repos = "https://cran.r-project.org")' >/dev/null 2>&1 || true
+fi
+if ! have_bioc; then
+    echo "  SKIP: BiocManager unavailable (no network?) - skipping Bioconductor round-trip"
+else
+    BIOCDIST="$SANDBOX/DIST_bioc"
+    BIOCLOGS="$SANDBOX/biologs"
+    printf 'Package\tRepository\nBiocGenerics\tBioconductor\n' > bioc.txt
+    DIST_DIR="$BIOCDIST" LOG_DIR="$BIOCLOGS" "$RSCRIPT" "$SCRIPT" download bioc.txt
+    assert_file "$(ls "$BIOCDIST"/BiocGenerics_*.tar.gz 2>/dev/null | head -1)" "BiocGenerics (Bioconductor) tarball"
+    assert_file "$(ls "$BIOCDIST"/generics_*.tar.gz   2>/dev/null | head -1)" "generics (CRAN dep) tarball"
+    if grep -q "dropped (Bioconductor" "$BIOCLOGS/download_log.txt"; then
+        fail "BiocGenerics was dropped - check Bioconductor resolution"
+    fi
+    BIOCLIB="$SANDBOX/lib_bioc"
+    mkdir -p "$BIOCLIB"
+    R_LIBS="$BIOCLIB" DIST_DIR="$BIOCDIST" LOG_DIR="$BIOCLOGS" "$RSCRIPT" "$SCRIPT" offline bioc.txt
+    assert_installed "$BIOCLIB" BiocGenerics
+    assert_installed "$BIOCLIB" generics   # cross-repo CRAN dep, pulled from the local repo
+    pass "Bioconductor download -> offline install round-trip"
+fi
+
 echo
 echo "=== ALL PACKAGE TESTS PASSED ==="
