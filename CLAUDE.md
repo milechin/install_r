@@ -109,6 +109,12 @@ to the SCC, was removed in favor of these two portable steps.)
   existing `DIST`). Because `offline` reindexes first, its guard only requires that
   `DIST` *exists* — it no longer demands a pre-existing `PACKAGES` file (the reindex
   creates one), so a `DIST` that only ever received tarballs still installs in one step.
+  `index_dist()` prints a "Indexing DIST … N tarball(s) to scan" line before the scan,
+  because `write_PACKAGES` opens every tarball's `DESCRIPTION` and runs for minutes on a
+  large `DIST` with no other output (it looked like a hang). `offline`'s reindex can be
+  skipped with `SKIP_REINDEX=1` when `DIST` is unchanged since `download` (which already
+  wrote the index) — that path then requires a pre-existing `PACKAGES` file, since it
+  won't be creating one.
 - `download` mode is **re-runnable**: it skips any package whose exact-version tarball
   is already in `DIST` (version-aware — a newer CRAN version still gets fetched), so a
   re-run only grabs what's missing. `OVERWRITE=1` forces re-fetching everything. It

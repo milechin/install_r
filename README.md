@@ -188,6 +188,7 @@ Knobs (environment variables):
 | `TARGET_BIOC_VERSION` | download | Bioconductor release the downloads must target, e.g. `3.20` (default: the running R's Bioconductor release, used only when `TARGET_R_VERSION` equals the download machine's R). **Required** when downloading Bioconductor packages for a target R that differs from the download machine's R. |
 | `TARGET_OS` | download | OS the downloads must apply to: `linux` (default), `macos`, or `windows` |
 | `INCLUDE_SUGGESTS` | download | Set to `1` to also download the `Suggests` of the listed packages (plus those packages' hard deps), matching what an `install.packages(dependencies = TRUE)` would pull. Off by default; this can grow the closure substantially (e.g. one small package went from 3 to 44 tarballs in testing). |
+| `SKIP_REINDEX` | offline | Set to `1` to skip rebuilding the DIST `PACKAGES` index before installing. `offline` reindexes by default (so hand-added tarballs are picked up), but that scans every tarball and takes minutes for a large DIST; skip it when DIST is unchanged since the `download` step (which already wrote the index). Requires an existing `PACKAGES` index. |
 
 The download step prints the R-version, OS, Bioconductor, and Suggests criteria it is
 resolving against. Bioconductor packages that cannot be found in the resolved Bioc

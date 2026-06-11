@@ -37,9 +37,15 @@
 #                     self-contained library for a shared R build. Point it at the new R's
 #                     own library, e.g. .../install/lib64/R/library.
 #   DIST_DIR          DIST folder location (default: ./DIST)
-#   CRAN_REPO         CRAN mirror for download mode (default: https://cran.r-project.org)
+#   LOG_DIR           Directory for log/output files - package_installation_log.txt,
+#                     install_logs/, failed_packages.txt, download_log.txt (default:
+#                     build/package_install, created if missing).
+#   CRAN_REPO         CRAN mirror for download/online modes (default: https://cran.r-project.org)
 #   TARGET_R_VERSION  R version the downloads must be compatible with, for download
 #                     mode (default: the R running the download)
+#   TARGET_BIOC_VERSION  Bioconductor release the downloads must target, e.g. 3.20 (default:
+#                     the running R's Bioc release; required for download when the download
+#                     machine's R differs from the target R and the list has Bioc packages).
 #   TARGET_OS         OS the downloads must apply to, for download mode: linux | macos
 #                     | windows (default: linux)
 #   INCLUDE_SUGGESTS  Include Suggests, not just hard deps (Depends/Imports/LinkingTo).
@@ -49,6 +55,10 @@
 #   OVERWRITE         download mode only: re-fetch every resolved tarball even if it is
 #                     already in DIST. Default off -> download is re-runnable and only
 #                     fetches packages whose exact-version tarball is missing from DIST.
+#   SKIP_REINDEX      offline mode only: skip rebuilding the DIST PACKAGES index before
+#                     installing (default: off). Use when DIST is unchanged since the
+#                     download step, which already wrote the index - reindexing a large
+#                     DIST takes minutes. Requires an existing PACKAGES index.
 
 # --- helpers ---------------------------------------------------------------
 
@@ -256,6 +266,13 @@ index_dist <- function(dist_dir) {
   if (!dir.exists(dist_dir)) {
     stop("DIST folder '", dist_dir, "' does not exist.")
   }
+  # write_PACKAGES opens every .tar.gz in DIST to read its DESCRIPTION, so for a large
+  # repository (hundreds/thousands of tarballs) this step runs for a while with no output.
+  # Announce it up front so a long, silent index build doesn't look like a hang.
+  n_tarballs <- length(list.files(dist_dir, pattern = "\\.tar\\.gz$"))
+  cat("Indexing DIST at", normalizePath(dist_dir), "-", n_tarballs,
+      "tarball(s) to scan; this can take a few minutes for a large repository ...\n")
+  utils::flush.console()
   invisible(tools::write_PACKAGES(dist_dir, type = "source"))
 }
 
@@ -426,8 +443,21 @@ install_offline <- function(packages, dist_dir, log_dir = "build/package_install
   # Reindex DIST before installing so any tarballs added since the last index (e.g.
   # dropped in by hand) are picked up. This also rebuilds a missing PACKAGES file - so
   # a DIST that only ever received tarballs still installs without a separate step.
-  n_indexed <- index_dist(dist_dir)
-  cat("Indexed", n_indexed, "package(s) in", normalizePath(dist_dir), "\n")
+  # SKIP_REINDEX bypasses it when DIST is known unchanged since the download step (which
+  # already wrote the index) - useful because reindexing a large DIST takes minutes. When
+  # skipping, the PACKAGES index must already exist (we won't be creating it).
+  skip_reindex <- tolower(Sys.getenv("SKIP_REINDEX", "")) %in% c("1", "true", "yes")
+  if (skip_reindex) {
+    if (!file.exists(file.path(dist_dir, "PACKAGES"))) {
+      stop("SKIP_REINDEX is set but '", dist_dir, "' has no PACKAGES index. ",
+           "Unset SKIP_REINDEX to build it (or run the 'index' mode first).")
+    }
+    cat("Skipping reindex (SKIP_REINDEX set); using the existing PACKAGES index in",
+        normalizePath(dist_dir), "\n")
+  } else {
+    n_indexed <- index_dist(dist_dir)
+    cat("Indexed", n_indexed, "package(s) in", normalizePath(dist_dir), "\n")
+  }
   # download.packages writes tarballs (and write_PACKAGES the index) flat in DIST, so
   # point contriburl straight at DIST rather than letting install.packages append
   # the usual src/contrib path.
