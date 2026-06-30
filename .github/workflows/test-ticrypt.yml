@@ -1,0 +1,50 @@
+name: Test ticrypt_packages.R
+
+# Exercises ticrypt/ticrypt_packages.R (the researcher air-gap helper) end-to-end: the
+# download -> (copy folder) -> install round-trip for a CRAN package (+dep) and a
+# Bioconductor package (+dep). Runs in a rocker/r-ver container, which ships R
+# preinstalled, so nothing is built from source and the job is fast. A fresh container
+# has only base+recommended packages, so the dependency packages are genuinely absent
+# and really get downloaded and compiled into the test library.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ticrypt/ticrypt_packages.R'
+      - 'test/ticrypt/run_ticrypt_test.sh'
+      - '.github/workflows/test-ticrypt.yml'
+  pull_request:
+    paths:
+      - 'ticrypt/ticrypt_packages.R'
+      - 'test/ticrypt/run_ticrypt_test.sh'
+      - '.github/workflows/test-ticrypt.yml'
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'rocker image to test in (R version), e.g. rocker/r-ver:4.5.2'
+        required: false
+        default: 'rocker/r-ver:latest'
+        type: string
+
+jobs:
+  test-ticrypt:
+    name: TICrypt helper on ${{ inputs.image || 'rocker/r-ver:latest' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    container:
+      image: ${{ inputs.image || 'rocker/r-ver:latest' }}
+
+    steps:
+      - name: Install checkout prerequisites (git)
+        # actions/checkout needs git; the rocker image is minimal.
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Run ticrypt round-trip test
+        run: bash test/ticrypt/run_ticrypt_test.sh

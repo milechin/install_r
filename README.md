@@ -202,17 +202,41 @@ The download step prints the R-version, OS, Bioconductor, and Suggests criteria 
 resolving against. Bioconductor packages that cannot be found in the resolved Bioc
 release are reported separately in `download_log.txt` (check `TARGET_BIOC_VERSION`).
 
+### Researchers: pulling a few packages into TICrypt
+
+The workflow above is admin-oriented (CLI modes, env vars, a full package list). For a
+**researcher** who just wants a few packages of their choice inside the air-gapped
+**TICrypt** environment, [`ticrypt/ticrypt_packages.R`](ticrypt/ticrypt_packages.R) is a
+single self-contained script driven entirely from the R console:
+
+```r
+# On an internet-connected machine:
+source("ticrypt_packages.R")
+ticrypt_download(c("dplyr", "DESeq2"))   # tarballs + deps + a copy of the script -> ./ticrypt_packages
+
+# Copy the ticrypt_packages/ folder into TICrypt, then there:
+source("ticrypt_packages/ticrypt_packages.R")
+ticrypt_install()                        # compiles into the personal library
+```
+
+CRAN and Bioconductor are both supported with no per-package tagging. See
+[`ticrypt/README.md`](ticrypt/README.md) for the researcher guide (and the admin note on
+the `TICRYPT_*` target constants).
+
 ---
 
 ## Running the tests
 
-The [`test/`](test/) directory has two independent harnesses:
+The [`test/`](test/) directory has three independent harnesses:
 
 - [`test/install_R/run_test.sh`](test/install_R/run_test.sh) — builds R from source with `install_R.sh`
   (below).
 - [`test/install_packages/run_package_test.sh`](test/install_packages/run_package_test.sh) — exercises
   `install_packages.R`'s three modes (see
   [Testing install_packages.R](#testing-install_packagesr)).
+- [`test/ticrypt/run_ticrypt_test.sh`](test/ticrypt/run_ticrypt_test.sh) — exercises the researcher
+  `ticrypt_packages.R` download→install round-trip (CRAN + Bioconductor). Like the package
+  harness it just needs an R/Rscript on PATH (run it in a `rocker/r-ver` container).
 
 ### Testing install_R.sh
 
@@ -323,6 +347,14 @@ container (R preinstalled, so nothing is built — the job is fast). It triggers
 changes to `install_packages.R`, `list_packages.R`, the test script, or the workflow
 itself, and on manual dispatch (which takes an optional `image` input to pick the
 `rocker/r-ver` tag / R version).
+
+### `test-ticrypt.yml` — the researcher TICrypt helper
+
+[`.github/workflows/test-ticrypt.yml`](.github/workflows/test-ticrypt.yml)
+runs [`test/ticrypt/run_ticrypt_test.sh`](test/ticrypt/run_ticrypt_test.sh) in a `rocker/r-ver`
+container, exercising the `ticrypt_packages.R` download→install round-trip for a CRAN and
+a Bioconductor package. It triggers on changes to `ticrypt/ticrypt_packages.R`, its test
+script, or the workflow itself, and on manual dispatch (optional `image` input).
 
 ### Choosing the R version for a manual run of `test-install-r.yml`
 

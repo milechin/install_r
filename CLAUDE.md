@@ -68,6 +68,22 @@ yourself, e.g. `module load R/<ver>` on the SCC or any R elsewhere):
 (The old `install_packages.sh` wrapper, which hard-coded `module load`s and was tied
 to the SCC, was removed in favor of these two portable steps.)
 
+**3. Researcher air-gap helper for TICrypt — the [ticrypt/](ticrypt/) subdirectory**
+[ticrypt/ticrypt_packages.R](ticrypt/ticrypt_packages.R) is a single **self-contained**,
+console-driven distillation of workflow 2's `download`→`offline` path, aimed at end-user
+researchers (not admins) pulling a few packages into the air-gapped **TICrypt** env. Two
+functions: `ticrypt_download(c("pkg", ...))` (on an internet machine — resolves CRAN+Bioc
+closure against the **target** TICrypt R, fetches source tarballs, writes a `PACKAGES`
+index + `REQUESTED.txt`, and **copies itself** into the folder so it's self-contained) and
+`ticrypt_install()` (inside TICrypt — installs from the `file://` folder into the personal
+library). The target R/Bioc/OS are admin-maintained **constants at the top of the file**
+(`TICRYPT_R_VERSION`/`TICRYPT_BIOC_VERSION`/`TICRYPT_OS`) because the download machine
+can't detect TICrypt's R; RCS updates them on a TICrypt R upgrade. No env vars, no list
+file, no `Repository` tagging (packages resolve from whichever of CRAN/Bioc has them).
+Tested by [test/ticrypt/run_ticrypt_test.sh](test/ticrypt/run_ticrypt_test.sh) (CI:
+`test-ticrypt.yml`, on `rocker/r-ver`). It deliberately **duplicates** (not imports) the
+helper logic from `install_packages.R`, since TICrypt only ever receives the one file.
+
 ## Things that aren't obvious from reading one file
 
 - The migration `.R` scripts (`list_packages.R`, `install_packages.R`) are
