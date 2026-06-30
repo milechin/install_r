@@ -51,6 +51,15 @@ installed and up to date are skipped.
 - **Install into a specific library:** `ticrypt_install(lib = "/path/to/library")`.
 - **Different folder name:** `ticrypt_download(..., dir = "my_pkgs")` then
   `ticrypt_install(dir = "my_pkgs")`.
+- **Target a different TICrypt R** than the script's built-in defaults (normally you don't
+  need this — RCS keeps the defaults current). Each setting is an argument to
+  `ticrypt_download`, defaulting to the `TICRYPT_*` constant at the top of the file:
+  ```r
+  ticrypt_download(c("dplyr"),
+                   target_r     = "4.4.1",   # TICrypt R version to resolve for
+                   bioc_version = "3.19",    # matching Bioconductor release
+                   target_os    = "linux")   # linux | macos | windows
+  ```
 - Run `ticrypt_help()` any time for a reminder.
 
 ## If something fails to install
