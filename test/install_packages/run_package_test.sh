@@ -196,15 +196,19 @@ pass "offline skipped the absent package and installed the available one"
 
 # ---------------------------------------------------------------------------
 echo "=== 12. version-aware upgrade: a newer repo version replaces an older installed one ==="
-# Install a package, then fake an OLDER installed version so the repo copy looks newer,
-# and re-run: it must be upgraded back to the repo version (not skipped as "installed").
+# Stage an OLDER version of an installed package BY HAND - a minimal install holding only
+# a DESCRIPTION (no Meta/package.rds) - so packageVersion reports the stale version. (You
+# can't just sed a real install's DESCRIPTION down: packageVersion reads the cached
+# Meta/package.rds, not the text file, so the edit is ignored.) Re-run online: it must see
+# the older version and upgrade to the repo version, not skip it as already installed.
+# This also guards the online available.packages() lookup: if that came back empty (e.g.
+# the contriburl=NULL regression) the repo version would be NA and praise would be wrongly
+# skipped, failing here.
 UPLIB="$SANDBOX/lib_upgrade"
-mkdir -p "$UPLIB"
-printf 'Package\npraise\n' > up.txt
-R_LIBS="$UPLIB" "$RSCRIPT" "$SCRIPT" online up.txt >/dev/null 2>&1
+mkdir -p "$UPLIB/praise"
+printf 'Package: praise\nVersion: 0.0.1\n' > "$UPLIB/praise/DESCRIPTION"
 DESC="$UPLIB/praise/DESCRIPTION"
-[ -f "$DESC" ] || fail "praise not installed for the upgrade test"
-sed -i 's/^Version:.*/Version: 0.0.1/' "$DESC"        # pretend an older version is installed
+printf 'Package\npraise\n' > up.txt
 out=$(R_LIBS="$UPLIB" "$RSCRIPT" "$SCRIPT" online up.txt 2>&1)
 echo "$out" | grep -q "Installing package: praise" || fail "praise was not (re)installed for upgrade"
 nowver=$(grep '^Version:' "$DESC" | awk '{print $2}')
