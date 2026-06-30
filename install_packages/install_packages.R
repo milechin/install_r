@@ -106,7 +106,15 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
                                dependencies = TRUE, log_dir = "build/package_install") {
   # Versions the repo can actually install on THIS R (default filters = R-version/OS
   # aware), so the upgrade comparison uses the version install.packages would pick here.
-  avail <- available.packages(repos = repos, contriburl = contriburl, type = type)
+  # NB: pass contriburl ONLY when we have one (offline/file:// repo). available.packages
+  # defaults contriburl to contrib.url(repos, type); passing contriburl = NULL explicitly
+  # overrides that default with nothing to read and yields an EMPTY index - which would
+  # make every avail_ver NA, so online never upgrades and the success check below silently
+  # degrades to mere presence. Let the default stand in the online (repos-only) case.
+  avail <- if (is.null(contriburl))
+    available.packages(repos = repos, type = type)
+  else
+    available.packages(contriburl = contriburl, type = type)
   avail_ver <- stats::setNames(avail[, "Version"], rownames(avail))
 
   # Current installed version of a package, or NA if not installed.
