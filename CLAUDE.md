@@ -157,14 +157,22 @@ to the SCC, was removed in favor of these two portable steps.)
   2-column `Package`+`Repository` format the scripts read, so a failed **Bioconductor**
   package retried via that file stays tagged Bioconductor instead of silently reverting
   to CRAN. `DIST_DIR` is unrelated (the package repo) and independent of `LOG_DIR`.
-- [install_packages.R](install_packages/install_packages.R) decides per-package SUCCESS/FAILED by
-  checking the package is actually present afterwards (`find.package`), **not** by
-  `tryCatch` alone — a failed source build emits a *warning* (not an error), so the
-  naive catch would log a false SUCCESS. Don't "simplify" that back. It passes
-  `keep_outputs` to `install.packages` and keeps each **failed** build's full output
-  as `install_logs/<pkg>.out` (the place the actual compiler / missing-dependency
-  error appears), deleting the successes' outputs. Failures are also collected into
-  `failed_packages.txt` (a re-feedable list) with a printed retry command.
+- **Install is version-aware** (`install_from_repo`): a package is (re)installed when it
+  is **missing** or the repo offers a **strictly newer** version (an upgrade), and skipped
+  when already at >= the repo version. The repo versions come from
+  `available.packages()` with **default** filters (R-version/OS aware — the version
+  `install.packages` would actually install here), unlike the offline not-in-DIST
+  pre-filter which uses `filters=character(0)` (pure presence). The loop re-checks the
+  *current* installed version each iteration, so a package an earlier entry pulled in as a
+  dependency (now current) is skipped rather than rebuilt — that re-check is what keeps a
+  ~1800-package run from recompiling everything. Success is judged by the installed
+  version **afterwards** (`packageVersion >= repo version`), **not** `tryCatch`/mere
+  presence — a failed source build emits a *warning* (not an error), and a failed
+  *upgrade* can leave the old version in place, so a naive "is it present" check would log
+  a false SUCCESS. Don't "simplify" that back. It passes `keep_outputs` to
+  `install.packages` and keeps each **failed** build's full output as
+  `install_logs/<pkg>.out`, deleting the successes' outputs. Failures are also collected
+  into `failed_packages.txt` (a re-feedable list) with a printed retry command.
 - Hard-coded versions (`gcc/12.2.0`, `flexiblas/3.3.1`, `cmake/3.22.2`, the
   `pkg.7`→`pkg.8`/alma8 paths, `R-4/` URL path) are environment facts, not defaults to
   generalize. Changing them is a real migration decision.

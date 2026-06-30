@@ -94,22 +94,49 @@ read_package_list <- function(file_path) {
 # offline, pass contriburl pointing at the flat DIST repo (file://...) so
 # install.packages reads DIST/PACKAGES directly rather than expecting the src/contrib
 # subtree a normal repos= would.
+#
+# Version-aware: a package is (re)installed when it is missing OR the repo offers a
+# strictly newer version (an upgrade); a package already at >= the repo version is
+# skipped. This mirrors how `install.packages` treats an explicitly-named package
+# (always installs the repo's version) but avoids needlessly recompiling packages that
+# are already current - important because we install per-package with dependencies=TRUE,
+# so an early entry often pulls later entries in as deps; by the time their turn comes
+# they are current and are skipped rather than rebuilt.
 install_from_repo <- function(packages, repos, contriburl = NULL, type = getOption("pkgType"),
                                dependencies = TRUE, log_dir = "build/package_install") {
-  installed <- rownames(installed.packages())
-  missing_packages <- setdiff(packages, installed)
+  # Versions the repo can actually install on THIS R (default filters = R-version/OS
+  # aware), so the upgrade comparison uses the version install.packages would pick here.
+  avail <- available.packages(repos = repos, contriburl = contriburl, type = type)
+  avail_ver <- stats::setNames(avail[, "Version"], rownames(avail))
 
-  if (length(missing_packages) == 0) {
-    cat("All packages from the list are already installed.\n")
+  # Current installed version of a package, or NA if not installed.
+  cur_version <- function(pkg) {
+    v <- tryCatch(as.character(utils::packageVersion(pkg)), error = function(e) NA_character_)
+    v
+  }
+  # TRUE if pkg should be (re)installed: missing, or the repo has a strictly newer version.
+  # A package not in the repo (avail NA) but already installed is left as-is.
+  needs_action <- function(pkg, cur) {
+    if (is.na(cur)) return(TRUE)                       # not installed
+    av <- avail_ver[pkg]
+    if (is.na(av)) return(FALSE)                       # not in repo -> can't upgrade
+    package_version(av) > package_version(cur)
+  }
+
+  to_process <- packages[vapply(packages, function(p) needs_action(p, cur_version(p)),
+                                logical(1))]
+
+  if (length(to_process) == 0) {
+    cat("All requested packages are already installed and up to date.\n")
     return(invisible(character(0)))
   }
 
-  # install.packages writes to (and find.package/installed.packages above read from)
-  # the first entry of .libPaths(). The dispatch code below sets that from R_INSTALL_LIB
-  # when given, so installs land in the chosen library; pass it explicitly here so the
-  # target is unambiguous at the call site.
+  # install.packages writes to (and packageVersion/find.package above read from) the first
+  # entry of .libPaths(). The dispatch code below sets that from R_INSTALL_LIB when given,
+  # so installs land in the chosen library; pass it explicitly here so the target is
+  # unambiguous at the call site.
   target_lib <- .libPaths()[1]
-  cat("Installing", length(missing_packages), "missing packages into", target_lib, "\n")
+  cat("Installing/upgrading", length(to_process), "package(s) into", target_lib, "\n")
   dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
   log_file <- file.path(log_dir, "package_installation_log.txt")
   cat("Installation started at", format(Sys.time()), "\n", file = log_file)
@@ -131,18 +158,15 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
     }
   }
 
-  is_installed <- function(pkg) length(find.package(pkg, quiet = TRUE)) > 0
-
   failed <- character(0)
-  for (pkg in missing_packages) {
-    # missing_packages was computed once, up front. Because each install.packages call
-    # below uses dependencies = TRUE, installing an earlier list entry also pulls in its
-    # dependencies - and those dependencies are often later entries in this same list.
-    # install.packages always reinstalls a package named explicitly (it only skips
-    # already-installed *dependencies*), so without this re-check we would needlessly
-    # reinstall every package that an earlier entry already brought in as a dependency.
-    if (is_installed(pkg)) {
-      cat("Already installed (skipping):", pkg, "\n")
+  for (pkg in to_process) {
+    # Re-check at loop time against the CURRENT installed version: because each
+    # install.packages call uses dependencies=TRUE, an earlier entry may have already
+    # brought this package in (at the repo version) as a dependency - in which case it is
+    # now current and is skipped rather than needlessly rebuilt.
+    cur <- cur_version(pkg)
+    if (!needs_action(pkg, cur)) {
+      cat("Already up to date (skipping):", pkg, "\n")
       cat("ALREADY INSTALLED:", pkg, "\n", file = log_file, append = TRUE)
       next
     }
@@ -151,8 +175,8 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
     # A failed source build makes install.packages emit a *warning* ("had non-zero
     # exit status"), not an error, so tryCatch alone would miss it - and there can be
     # several warnings (the informative "dependency not available" plus the generic
-    # one). Capture them all, then decide success by whether the package is actually
-    # present afterwards (the authoritative check); the full build log is in <pkg>.out.
+    # one). Capture them all, then decide success by the installed version afterwards
+    # (the authoritative check); the full build log is in <pkg>.out.
     msgs <- character(0)
     withCallingHandlers(
       tryCatch(install_one(pkg), error = function(e) msgs <<- c(msgs, conditionMessage(e))),
@@ -160,7 +184,12 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
     )
     new_outs <- setdiff(list.files(out_dir, pattern = "\\.out$"), before)
 
-    if (is_installed(pkg)) {
+    # Success = present afterwards AND, when the repo lists it, at >= the repo version -
+    # so a failed *upgrade* that leaves the older version in place is not a false SUCCESS.
+    after <- cur_version(pkg)
+    av <- avail_ver[pkg]
+    ok <- !is.na(after) && (is.na(av) || package_version(after) >= package_version(av))
+    if (ok) {
       cat("SUCCESS:", pkg, "\n", file = log_file, append = TRUE)
       if (length(new_outs)) file.remove(file.path(out_dir, new_outs))  # keep only failures
     } else {
@@ -178,7 +207,7 @@ install_from_repo <- function(packages, repos, contriburl = NULL, type = getOpti
 
   cat("Installation completed at", format(Sys.time()), "\n", file = log_file, append = TRUE)
   if (length(failed) > 0) {
-    cat(length(failed), "of", length(missing_packages), "failed:",
+    cat(length(failed), "of", length(to_process), "failed:",
         paste(failed, collapse = ", "), "\n", file = log_file, append = TRUE)
     cat("Per-failure build logs are in", out_dir, "/.\n", file = log_file, append = TRUE)
   } else if (length(list.files(out_dir)) == 0) {

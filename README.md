@@ -109,12 +109,14 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    Rscript install_packages/install_packages.R path/to/list.txt   # or point at a specific list file
    ```
 
-   [`install_packages.R`](install_packages/install_packages.R) reads the package list, computes which
-   packages are not yet present in the new R (`setdiff` against
-   `installed.packages()`), and installs the missing ones — from CRAN, and (when the
-   list contains Bioconductor packages) from the Bioconductor repositories for the
-   running R as well, bootstrapping BiocManager from CRAN if it is not already present.
-   Versions are not pinned: each named package is installed at its current version.
+   [`install_packages.R`](install_packages/install_packages.R) reads the package list and installs each
+   named package — from CRAN, and (when the list contains Bioconductor packages) from
+   the Bioconductor repositories for the running R as well, bootstrapping BiocManager
+   from CRAN if it is not already present. Versions are not pinned: each package is
+   installed at its current repo version. The install is **version-aware** — a package
+   is installed when missing and **upgraded** when the repo offers a newer version, but
+   one already at the current version is skipped (so re-runs don't needlessly recompile
+   what's already up to date).
    Per-package results are logged to `build/package_install/package_installation_log.txt` (`SUCCESS:` /
    `FAILED:` with the error text per package). Success is determined by checking the
    package is actually present afterwards — a source build that fails only emits a
@@ -129,8 +131,8 @@ how each R is provided (`module load R/<ver>` on the SCC, or any R elsewhere).
    If any packages fail, their names (with the `Repository` tag) are also written to
    `build/package_install/failed_packages.txt` (same format as the input list) and a ready-to-run retry
    command is printed. You can rerun that to attempt only the failures — and since the
-   script skips already-installed packages, simply re-running with the original list
-   works too.
+   script skips packages already at the current version, simply re-running with the
+   original list works too (it only (re)installs what's missing or out of date).
 
 Note: packages compile from source on the new R, so the build toolchain (and any
 system `-devel` libraries a given package needs) must be available on the machine —
