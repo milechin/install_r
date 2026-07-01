@@ -85,7 +85,7 @@ machine can't detect TICrypt's R on its own):
 
 ```r
 TICRYPT_R_VERSION    <- "4.5.2"   # R version inside TICrypt
-TICRYPT_BIOC_VERSION <- "3.21"    # Bioconductor release tied to that R
+TICRYPT_BIOC_VERSION <- "3.22"    # Bioconductor release tied to that R
 TICRYPT_OS           <- "linux"
 ```
 
@@ -93,8 +93,12 @@ TICRYPT_OS           <- "linux"
 `ticrypt_install()` verifies TICrypt's actual R (major.minor) and Bioconductor release
 against them, stopping on a mismatch (overridable with `force = TRUE`). So if the constants
 are stale relative to TICrypt, a researcher gets a clear error at install time rather than a
-confusing build failure — a good signal to update them here. (Bioconductor is only verified
-when `BiocManager` is installed on TICrypt.)
+confusing build failure — a good signal to update them here. The **R version is the hard
+gate**. The Bioconductor check is best-effort: `BiocManager::version()` needs the internet
+to validate a release, which TICrypt doesn't have, so when the release can't be determined
+offline the Bioc check is **skipped with a note** (the R match already implies the Bioc
+release, since the two are locked together) — it never blocks on an unverifiable Bioc
+version.
 
 This tool is a researcher-friendly, single-file distillation of the admin air-gap workflow
 in [`../install_packages/install_packages.R`](../install_packages/install_packages.R)

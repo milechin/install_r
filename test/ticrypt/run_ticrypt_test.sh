@@ -101,5 +101,33 @@ grep -q "proceeding despite an environment mismatch" mmf.out || fail "force over
 assert_installed "$SANDBOX/lib_mm" lgr
 pass "force = TRUE overrode the mismatch and installed"
 
+# ---------------------------------------------------------------------------
+echo "=== 6. offline: undeterminable Bioconductor release is skipped, not a mismatch ==="
+# Simulate TICrypt (no internet): make BiocManager::version() fail as it would when it
+# can't validate online. The Bioc check must be SKIPPED (not turned into a mismatch), the
+# R check still passes, and the install proceeds without force.
+out=$("$RSCRIPT" -e '
+suppressWarnings(assignInNamespace("version", function(...) stop("offline"), "BiocManager"))
+source("dl/ticrypt_packages.R")
+ticrypt_install(dir = "dl", lib = "lib_offline_bioc")
+' 2>&1) || { echo "$out"; fail "install failed when Bioc release was undeterminable"; }
+echo "$out" | grep -q "could not determine this system's Bioconductor release" \
+  || fail "did not note the skipped Bioconductor check"
+echo "$out" | grep -q "Bioconductor: downloaded for" && fail "reported a bogus Bioc mismatch offline"
+assert_installed "$SANDBOX/lib_offline_bioc" lgr
+pass "undeterminable Bioc release was skipped and install proceeded"
+
+# ---------------------------------------------------------------------------
+echo "=== 7. a determinable Bioconductor mismatch does stop ==="
+# When BiocManager CAN report a release (online here), a genuinely wrong recorded Bioc
+# version is caught as a mismatch.
+cp -r dl dlb2
+sed -i 's/^BiocVersion:.*/BiocVersion: 1.0/' dlb2/TICRYPT_TARGET.dcf
+if "$RSCRIPT" -e 'source("dlb2/ticrypt_packages.R"); ticrypt_install(dir = "dlb2", lib = "lib_bmm")' >bmm.out 2>&1; then
+  fail "install did not stop on a Bioconductor mismatch"
+fi
+grep -q "Bioconductor: downloaded for 1.0" bmm.out || fail "Bioconductor mismatch not reported"
+pass "determinable Bioconductor mismatch stopped the install"
+
 echo
 echo "=== ALL TICRYPT TESTS PASSED ==="

@@ -24,7 +24,7 @@
 # TICrypt's R itself. These constants tell ticrypt_download() which R/Bioconductor
 # release to resolve packages for. Update them when TICrypt's R is upgraded.
 TICRYPT_R_VERSION    <- "4.5.2"   # R version inside TICrypt
-TICRYPT_BIOC_VERSION <- "3.21"    # Bioconductor release tied to that R
+TICRYPT_BIOC_VERSION <- "3.22"    # Bioconductor release tied to that R
 TICRYPT_OS           <- "linux"   # TICrypt operating system (linux | macos | windows)
 
 DEFAULT_DIR <- "ticrypt_packages" # folder the download writes to / the install reads from
@@ -155,10 +155,26 @@ DEFAULT_CRAN <- "https://cran.r-project.org"
 # compatibility track the R minor version, so that is the granularity we compare at.
 .ticrypt_rmm <- function(v) paste(unclass(as.numeric_version(v))[[1]][1:2], collapse = ".")
 
+# This system's Bioconductor release, determined WITHOUT the internet (TICrypt is
+# air-gapped). BiocManager::version() derives the release from the running R via its
+# bundled map, but it also tries to validate that online and warns/fails when it can't
+# reach the network. So suppress that noise and, if it can't yield a clean "x.y" release,
+# return NA - the caller then SKIPS the Bioconductor check rather than reporting a bogus
+# "unknown version" mismatch. Returns NA when BiocManager is absent too.
+.ticrypt_bioc_version <- function() {
+  if (!requireNamespace("BiocManager", quietly = TRUE)) return(NA_character_)
+  v <- suppressWarnings(suppressMessages(tryCatch(
+    as.character(BiocManager::version()), error = function(e) NA_character_)))
+  if (length(v) != 1L || is.na(v) || !grepl("^[0-9]+\\.[0-9]+$", v)) return(NA_character_)
+  v
+}
+
 # Verify (inside TICrypt) that the R/Bioconductor being installed into matches what the
 # download was resolved for, using the TICRYPT_TARGET.dcf the download wrote. Stops on a
-# mismatch unless force = TRUE. R is compared at major.minor; Bioconductor is only checked
-# when BiocManager is installed here (otherwise its release can't be determined).
+# mismatch unless force = TRUE. R (the hard gate) is compared at major.minor. Bioconductor
+# is best-effort: it's only compared when this system's release can be determined offline
+# (see .ticrypt_bioc_version); otherwise it's skipped with a note, since the R match already
+# implies the Bioc release (they are locked together).
 .ticrypt_check_target <- function(dir, force) {
   meta_file <- file.path(dir, "TICRYPT_TARGET.dcf")
   if (!file.exists(meta_file)) {
@@ -174,19 +190,21 @@ DEFAULT_CRAN <- "https://cran.r-project.org"
     if (!identical(want, have)) mism[[length(mism) + 1]] <- c("R", want, have)
   }
   if (!is.null(meta$BiocVersion) && !is.na(meta$BiocVersion) && nzchar(meta$BiocVersion)) {
-    if (requireNamespace("BiocManager", quietly = TRUE)) {
-      want <- as.character(meta$BiocVersion); have <- as.character(BiocManager::version())
-      if (!identical(want, have)) mism[[length(mism) + 1]] <- c("Bioconductor", want, have)
-    } else {
-      cat("NOTE: BiocManager is not installed here - cannot verify the Bioconductor",
-          "release (recorded target:", meta$BiocVersion, ").\n")
+    have_bioc <- .ticrypt_bioc_version()
+    if (is.na(have_bioc)) {
+      cat("NOTE: could not determine this system's Bioconductor release (BiocManager",
+          "absent, or it needs the internet to validate - unavailable in TICrypt);",
+          "skipping the Bioconductor check and relying on the R version match.",
+          "Recorded target:", meta$BiocVersion, "\n")
+    } else if (!identical(as.character(meta$BiocVersion), have_bioc)) {
+      mism[[length(mism) + 1]] <- c("Bioconductor", as.character(meta$BiocVersion), have_bioc)
     }
   }
 
   if (length(mism) == 0) {
+    have_bioc <- .ticrypt_bioc_version()
     cat("Environment matches download target (R ", .ticrypt_rmm(getRversion()),
-        if (!is.null(meta$BiocVersion) && requireNamespace("BiocManager", quietly = TRUE))
-          paste0(", Bioconductor ", as.character(BiocManager::version())) else "",
+        if (!is.na(have_bioc)) paste0(", Bioconductor ", have_bioc) else "",
         ").\n", sep = "")
     return(invisible())
   }
