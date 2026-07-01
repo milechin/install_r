@@ -23,7 +23,7 @@
 # The download usually runs on a different machine/R than TICrypt, so it cannot detect
 # TICrypt's R itself. These constants tell ticrypt_download() which R/Bioconductor
 # release to resolve packages for. Update them when TICrypt's R is upgraded.
-TICRYPT_R_VERSION    <- "4.5.2"   # R version inside TICrypt
+TICRYPT_R_VERSION    <- "4.4.2"   # R version inside TICrypt
 TICRYPT_BIOC_VERSION <- "3.22"    # Bioconductor release tied to that R
 TICRYPT_OS           <- "linux"   # TICrypt operating system (linux | macos | windows)
 
@@ -169,6 +169,33 @@ DEFAULT_CRAN <- "https://cran.r-project.org"
   v
 }
 
+# This system's OS as a ticrypt_download() target_os value ("linux"/"macos"/"windows").
+.ticrypt_os <- function() {
+  sysname <- tryCatch(tolower(Sys.info()[["sysname"]]), error = function(e) "")
+  switch(sysname, linux = "linux", darwin = "macos", windows = "windows",
+         if (.Platform$OS.type == "windows") "windows" else "linux")
+}
+
+# Build a ready-to-copy ticrypt_download() call targeting THIS system - its R version and
+# OS, its Bioconductor release when that can be determined offline, and pre-filled with the
+# packages this folder requested (from REQUESTED.txt). Printed on a version mismatch so the
+# researcher can copy it verbatim to the internet machine and re-download a compatible set.
+# Laid out one argument per line so it is easy to select and paste.
+.ticrypt_download_command <- function(dir) {
+  req  <- file.path(dir, "REQUESTED.txt")
+  pkgs <- if (file.exists(req)) readLines(req) else character(0)
+  pkgs <- pkgs[nzchar(pkgs)]
+  pkg_arg <- if (length(pkgs))
+    paste0("c(", paste0('"', pkgs, '"', collapse = ", "), ")") else 'c("<your packages>")'
+  bioc <- .ticrypt_bioc_version()
+  args <- c(pkg_arg,
+            sprintf('target_r = "%s"', as.character(getRversion())),
+            sprintf('target_os = "%s"', .ticrypt_os()))
+  if (!is.na(bioc)) args <- c(args, sprintf('bioc_version = "%s"', bioc))
+  body <- paste0("      ", args, c(rep(",", length(args) - 1L), ""), collapse = "\n")
+  paste0("    ticrypt_download(\n", body, "\n    )")
+}
+
 # Verify (inside TICrypt) that the R/Bioconductor being installed into matches what the
 # download was resolved for, using the TICRYPT_TARGET.dcf the download wrote. Stops on a
 # mismatch unless force = TRUE. R (the hard gate) is compared at major.minor. Bioconductor
@@ -211,15 +238,23 @@ DEFAULT_CRAN <- "https://cran.r-project.org"
 
   lines <- vapply(mism, function(m) sprintf("  - %s: downloaded for %s, but this system is %s",
                                             m[1], m[2], m[3]), character(1))
-  msg <- paste0(
-    "This folder was downloaded for a different environment than this TICrypt R:\n",
-    paste(lines, collapse = "\n"), "\n",
-    "The packages may fail to build or be incompatible. Either re-run ticrypt_download()\n",
-    "with a matching target, or, to install anyway, re-run ticrypt_install(force = TRUE).")
-  if (!force) stop(msg, call. = FALSE)
-  cat("WARNING: proceeding despite an environment mismatch (force = TRUE):\n",
-      paste(lines, collapse = "\n"), "\n", sep = "")
-  invisible()
+  if (force) {
+    cat("WARNING: proceeding despite an environment mismatch (force = TRUE):\n",
+        paste(lines, collapse = "\n"), "\n", sep = "")
+    return(invisible())
+  }
+  # Print the full guidance (including a copy-pasteable command) via cat so the command
+  # block stays clean, then stop() with a short one-line error.
+  cat("\nThis folder was downloaded for a different environment than this system:\n",
+      paste(lines, collapse = "\n"), "\n\n",
+      "The packages may fail to build or be incompatible.\n\n",
+      "To download a matching set, run this on an internet-connected machine (where\n",
+      "ticrypt_packages.R lives), then copy the folder back here and re-run ticrypt_install():\n\n",
+      .ticrypt_download_command(dir), "\n\n",
+      "Or, to install these packages anyway despite the mismatch:\n\n",
+      "    ticrypt_install(force = TRUE)\n\n", sep = "")
+  stop("environment does not match the download target (see the command shown above).",
+       call. = FALSE)
 }
 
 # --- researcher-facing functions -------------------------------------------

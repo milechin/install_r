@@ -94,6 +94,12 @@ fi
 grep -q "downloaded for a different environment" mm.out || fail "mismatch message not shown"
 [ -d "$SANDBOX/lib_mm/lgr" ] && fail "packages were installed despite the mismatch"
 pass "install stopped on mismatch and installed nothing"
+# The guidance must include a ready-to-copy download command with this system's R + OS.
+grep -q "ticrypt_download(" mm.out || fail "no copy-pasteable ticrypt_download command shown"
+grep -q "target_r = \"$RV\"" mm.out || fail "suggested command missing correct target_r ($RV)"
+grep -q 'target_os = "linux"' mm.out || fail "suggested command missing target_os"
+grep -q '"lgr"' mm.out || fail "suggested command not pre-filled with the requested packages"
+pass "mismatch output includes a copy-pasteable download command for this system"
 
 "$RSCRIPT" -e 'source("dlm/ticrypt_packages.R"); ticrypt_install(dir = "dlm", lib = "lib_mm", force = TRUE)' >mmf.out 2>&1 \
   || { cat mmf.out; fail "force = TRUE did not install"; }

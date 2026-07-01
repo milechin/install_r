@@ -42,9 +42,10 @@ installed and up to date are skipped.
 
 Before installing, `ticrypt_install()` checks that TICrypt's **R version** and
 **Bioconductor release** match the ones the folder was downloaded for. If they don't match
-it **stops** and explains the difference (the packages were built for a different
-environment). Re-download with the correct target, or install anyway with
-`ticrypt_install(force = TRUE)`.
+it **stops** and prints a ready-to-copy `ticrypt_download(...)` command — pre-filled with
+this system's R version and OS (and Bioconductor release when it can be determined) and the
+packages you requested — so you can paste it on the internet machine, re-download a matching
+set, and copy the folder back. Or install anyway with `ticrypt_install(force = TRUE)`.
 
 ## Options
 
