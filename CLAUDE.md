@@ -78,7 +78,11 @@ index + `REQUESTED.txt`, and **copies itself** into the folder so it's self-cont
 `ticrypt_install()` (inside TICrypt — installs from the `file://` folder into the personal
 library). The target R/Bioc/OS are admin-maintained **constants at the top of the file**
 (`TICRYPT_R_VERSION`/`TICRYPT_BIOC_VERSION`/`TICRYPT_OS`) because the download machine
-can't detect TICrypt's R; RCS updates them on a TICrypt R upgrade. No env vars, no list
+can't detect TICrypt's R; RCS updates them on a TICrypt R upgrade. `download` records the
+target into `TICRYPT_TARGET.dcf` in the folder, and `install` **gates on it** — it stops
+(unless `force=TRUE`) when TICrypt's actual R (major.minor) or Bioconductor release
+(checked only when BiocManager is present) doesn't match, so stale constants surface as a
+clear install-time error rather than a build failure. No env vars, no list
 file, no `Repository` tagging (packages resolve from whichever of CRAN/Bioc has them).
 Tested by [test/ticrypt/run_ticrypt_test.sh](test/ticrypt/run_ticrypt_test.sh) (CI:
 `test-ticrypt.yml`, on `rocker/r-ver`). It deliberately **duplicates** (not imports) the

@@ -219,9 +219,11 @@ source("ticrypt_packages/ticrypt_packages.R")
 ticrypt_install()                        # compiles into the personal library
 ```
 
-CRAN and Bioconductor are both supported with no per-package tagging. See
-[`ticrypt/README.md`](ticrypt/README.md) for the researcher guide (and the admin note on
-the `TICRYPT_*` target constants).
+CRAN and Bioconductor are both supported with no per-package tagging. The download records
+its target R/Bioconductor into the folder, and `ticrypt_install()` **stops** if TICrypt's
+actual R (major.minor) or Bioconductor release doesn't match (overridable with
+`force = TRUE`). See [`ticrypt/README.md`](ticrypt/README.md) for the researcher guide (and
+the admin note on the `TICRYPT_*` target constants).
 
 ---
 

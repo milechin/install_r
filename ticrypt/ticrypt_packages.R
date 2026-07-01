@@ -151,6 +151,59 @@ DEFAULT_CRAN <- "https://cran.r-project.org"
   invisible(failed)
 }
 
+# Major.minor of a version ("4.5.2" -> "4.5"); Bioconductor and compiled-package
+# compatibility track the R minor version, so that is the granularity we compare at.
+.ticrypt_rmm <- function(v) paste(unclass(as.numeric_version(v))[[1]][1:2], collapse = ".")
+
+# Verify (inside TICrypt) that the R/Bioconductor being installed into matches what the
+# download was resolved for, using the TICRYPT_TARGET.dcf the download wrote. Stops on a
+# mismatch unless force = TRUE. R is compared at major.minor; Bioconductor is only checked
+# when BiocManager is installed here (otherwise its release can't be determined).
+.ticrypt_check_target <- function(dir, force) {
+  meta_file <- file.path(dir, "TICRYPT_TARGET.dcf")
+  if (!file.exists(meta_file)) {
+    cat("NOTE: target versions not recorded in this folder (older download);",
+        "skipping compatibility check.\n")
+    return(invisible())
+  }
+  meta <- as.list(read.dcf(meta_file)[1, ])
+  mism <- list()   # each: c(label, expected, actual)
+
+  if (!is.null(meta$RVersion) && !is.na(meta$RVersion)) {
+    want <- .ticrypt_rmm(meta$RVersion); have <- .ticrypt_rmm(getRversion())
+    if (!identical(want, have)) mism[[length(mism) + 1]] <- c("R", want, have)
+  }
+  if (!is.null(meta$BiocVersion) && !is.na(meta$BiocVersion) && nzchar(meta$BiocVersion)) {
+    if (requireNamespace("BiocManager", quietly = TRUE)) {
+      want <- as.character(meta$BiocVersion); have <- as.character(BiocManager::version())
+      if (!identical(want, have)) mism[[length(mism) + 1]] <- c("Bioconductor", want, have)
+    } else {
+      cat("NOTE: BiocManager is not installed here - cannot verify the Bioconductor",
+          "release (recorded target:", meta$BiocVersion, ").\n")
+    }
+  }
+
+  if (length(mism) == 0) {
+    cat("Environment matches download target (R ", .ticrypt_rmm(getRversion()),
+        if (!is.null(meta$BiocVersion) && requireNamespace("BiocManager", quietly = TRUE))
+          paste0(", Bioconductor ", as.character(BiocManager::version())) else "",
+        ").\n", sep = "")
+    return(invisible())
+  }
+
+  lines <- vapply(mism, function(m) sprintf("  - %s: downloaded for %s, but this system is %s",
+                                            m[1], m[2], m[3]), character(1))
+  msg <- paste0(
+    "This folder was downloaded for a different environment than this TICrypt R:\n",
+    paste(lines, collapse = "\n"), "\n",
+    "The packages may fail to build or be incompatible. Either re-run ticrypt_download()\n",
+    "with a matching target, or, to install anyway, re-run ticrypt_install(force = TRUE).")
+  if (!force) stop(msg, call. = FALSE)
+  cat("WARNING: proceeding despite an environment mismatch (force = TRUE):\n",
+      paste(lines, collapse = "\n"), "\n", sep = "")
+  invisible()
+}
+
 # --- researcher-facing functions -------------------------------------------
 
 #' Download packages (+ dependencies) for transfer into TICrypt.
@@ -216,6 +269,17 @@ ticrypt_download <- function(packages, dir = DEFAULT_DIR, suggests = FALSE,
 
   # Record the requested (resolved) names so the install step knows what to install.
   writeLines(sort(wanted), file.path(dir, "REQUESTED.txt"))
+
+  # Record the target these tarballs were resolved for, so ticrypt_install() can verify
+  # (on the TICrypt side) that the R/Bioconductor it is installing into actually matches.
+  write.dcf(data.frame(
+    RVersion = target_r, BiocVersion = bioc_version, OS = target_os,
+    DownloadedUnderR = as.character(getRversion()), Date = format(Sys.Date()),
+    stringsAsFactors = FALSE
+  ), file.path(dir, "TICRYPT_TARGET.dcf"))
+  cat("Recorded download target (R", target_r, "/ Bioconductor", bioc_version, ") in",
+      file.path(dir, "TICRYPT_TARGET.dcf"), "\n")
+
   .ticrypt_index(dir)
 
   # Copy this script into the folder so the transferred folder is self-contained.
@@ -239,12 +303,18 @@ ticrypt_download <- function(packages, dir = DEFAULT_DIR, suggests = FALSE,
 #' @param dir folder produced by ticrypt_download and copied into TICrypt.
 #' @param lib library to install into (default: your personal library, .libPaths()[1]).
 #' @param suggests set TRUE only if you ran ticrypt_download(..., suggests = TRUE).
-ticrypt_install <- function(dir = DEFAULT_DIR, lib = .libPaths()[1], suggests = FALSE) {
+#' @param force install even if this TICrypt R / Bioconductor does not match the versions
+#'   the folder was downloaded for (default FALSE = stop on a mismatch).
+ticrypt_install <- function(dir = DEFAULT_DIR, lib = .libPaths()[1], suggests = FALSE,
+                            force = FALSE) {
   if (!dir.exists(dir)) stop("Folder '", dir, "' not found. Copy it in from the download step.")
   req_file <- file.path(dir, "REQUESTED.txt")
   if (!file.exists(req_file))
     stop("'", req_file, "' missing - is this a folder produced by ticrypt_download()?")
   requested <- readLines(req_file)
+
+  # Fail fast on an R/Bioconductor mismatch before creating or installing anything.
+  .ticrypt_check_target(dir, force)
 
   dir.create(lib, recursive = TRUE, showWarnings = FALSE)
   if (file.access(lib, mode = 2) != 0) stop("Library '", lib, "' is not writable.")

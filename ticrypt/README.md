@@ -40,6 +40,12 @@ The packages compile from source and install into your **personal R library**. W
 finishes you can `library(dplyr)` as usual. Re-running is safe — packages already
 installed and up to date are skipped.
 
+Before installing, `ticrypt_install()` checks that TICrypt's **R version** and
+**Bioconductor release** match the ones the folder was downloaded for. If they don't match
+it **stops** and explains the difference (the packages were built for a different
+environment). Re-download with the correct target, or install anyway with
+`ticrypt_install(force = TRUE)`.
+
 ## Options
 
 - **Include `Suggests`** (optional extras some packages recommend). Set it the *same* on
@@ -82,6 +88,13 @@ TICRYPT_R_VERSION    <- "4.5.2"   # R version inside TICrypt
 TICRYPT_BIOC_VERSION <- "3.21"    # Bioconductor release tied to that R
 TICRYPT_OS           <- "linux"
 ```
+
+`ticrypt_download()` records these into `TICRYPT_TARGET.dcf` inside the folder, and
+`ticrypt_install()` verifies TICrypt's actual R (major.minor) and Bioconductor release
+against them, stopping on a mismatch (overridable with `force = TRUE`). So if the constants
+are stale relative to TICrypt, a researcher gets a clear error at install time rather than a
+confusing build failure — a good signal to update them here. (Bioconductor is only verified
+when `BiocManager` is installed on TICrypt.)
 
 This tool is a researcher-friendly, single-file distillation of the admin air-gap workflow
 in [`../install_packages/install_packages.R`](../install_packages/install_packages.R)

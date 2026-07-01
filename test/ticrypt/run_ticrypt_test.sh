@@ -49,15 +49,21 @@ assert_file "$(ls dl/lgr_*.tar.gz 2>/dev/null | head -1)" "lgr source tarball"
 assert_file "$(ls dl/R6_*.tar.gz  2>/dev/null | head -1)" "R6 dependency tarball"
 assert_file "dl/ticrypt_packages.R" "self-copied installer script"
 assert_file "dl/REQUESTED.txt" "REQUESTED.txt manifest"
+assert_file "dl/TICRYPT_TARGET.dcf" "download-target metadata"
+grep -q "RVersion: $RV" dl/TICRYPT_TARGET.dcf || fail "TICRYPT_TARGET.dcf missing RVersion $RV"
+grep -q "BiocVersion: $BV" dl/TICRYPT_TARGET.dcf || fail "TICRYPT_TARGET.dcf missing BiocVersion $BV"
+pass "target metadata records R $RV / Bioconductor $BV"
 
 # ---------------------------------------------------------------------------
 echo "=== 2. CRAN install leg: install from the COPIED folder's own script, no network ==="
 # Source dl/ticrypt_packages.R (the self-copied one) to prove the transferred folder is
-# self-contained, and install into a fresh library.
-"$RSCRIPT" -e '
+# self-contained, and install into a fresh library. The download target equals the running
+# R here, so the version check must pass and announce the match.
+out=$("$RSCRIPT" -e '
 source("dl/ticrypt_packages.R")
 ticrypt_install(dir = "dl", lib = "lib_cran")
-'
+' 2>&1)
+echo "$out" | grep -q "Environment matches download target" || fail "version check did not confirm a match"
 assert_installed "$SANDBOX/lib_cran" lgr
 assert_installed "$SANDBOX/lib_cran" R6   # dependency compiled from the local folder
 
@@ -76,6 +82,24 @@ echo "=== 4. re-run install is idempotent (already-current packages skipped) ===
 out=$("$RSCRIPT" -e 'source("dl/ticrypt_packages.R"); ticrypt_install(dir = "dl", lib = "lib_cran")' 2>&1)
 echo "$out" | grep -q "up to date, skipping: lgr" || fail "re-run did not skip already-installed lgr"
 pass "re-run skipped already-current packages"
+
+# ---------------------------------------------------------------------------
+echo "=== 5. version mismatch: install stops, force = TRUE overrides ==="
+# Tamper a copy's recorded R version so it no longer matches the running R.
+cp -r dl dlm
+sed -i 's/^RVersion:.*/RVersion: 1.2.0/' dlm/TICRYPT_TARGET.dcf
+if "$RSCRIPT" -e 'source("dlm/ticrypt_packages.R"); ticrypt_install(dir = "dlm", lib = "lib_mm")' >mm.out 2>&1; then
+  fail "install did not stop on an R-version mismatch"
+fi
+grep -q "downloaded for a different environment" mm.out || fail "mismatch message not shown"
+[ -d "$SANDBOX/lib_mm/lgr" ] && fail "packages were installed despite the mismatch"
+pass "install stopped on mismatch and installed nothing"
+
+"$RSCRIPT" -e 'source("dlm/ticrypt_packages.R"); ticrypt_install(dir = "dlm", lib = "lib_mm", force = TRUE)' >mmf.out 2>&1 \
+  || { cat mmf.out; fail "force = TRUE did not install"; }
+grep -q "proceeding despite an environment mismatch" mmf.out || fail "force override notice not shown"
+assert_installed "$SANDBOX/lib_mm" lgr
+pass "force = TRUE overrode the mismatch and installed"
 
 echo
 echo "=== ALL TICRYPT TESTS PASSED ==="
