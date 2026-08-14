@@ -23,7 +23,7 @@
 # The download usually runs on a different machine/R than TICrypt, so it cannot detect
 # TICrypt's R itself. These constants tell ticrypt_download() which R/Bioconductor
 # release to resolve packages for. Update them when TICrypt's R is upgraded.
-TICRYPT_R_VERSION    <- "4.4.2"   # R version inside TICrypt
+TICRYPT_R_VERSION    <- "4.5.2"   # R version inside TICrypt
 TICRYPT_BIOC_VERSION <- "3.22"    # Bioconductor release tied to that R
 TICRYPT_OS           <- "linux"   # TICrypt operating system (linux | macos | windows)
 
